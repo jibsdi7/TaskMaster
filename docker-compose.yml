@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: taskmaster-postgres
+    environment:
+      POSTGRES_USER: taskmaster
+      POSTGRES_PASSWORD: taskmaster
+      POSTGRES_DB: taskmaster
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskmaster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: taskmaster-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: taskmaster-backend
+    environment:
+      DATABASE_URL: postgresql://taskmaster:taskmaster@postgres:5432/taskmaster
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./screenshots:/app/screenshots
+      - ./uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: taskmaster-celery-worker
+    environment:
+      DATABASE_URL: postgresql://taskmaster:taskmaster@postgres:5432/taskmaster
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    volumes:
+      - ./backend:/app
+      - ./screenshots:/app/screenshots
+      - ./uploads:/app/uploads
+    depends_on:
+      - postgres
+      - redis
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+
+  # Celery Flower (Monitoring)
+  celery-flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: taskmaster-celery-flower
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - celery-worker
+    command: celery -A app.tasks.celery_app flower --port=5555
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: taskmaster-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    command: npm run dev -- --host
+
+volumes:
+  postgres_data:
+  redis_data:
+
+# Made with Bob

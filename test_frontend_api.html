@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TaskMaster Frontend API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .test-section {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 3px;
+            overflow-x: auto;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>TaskMaster Frontend API Test</h1>
+    <p>This page tests the API connection from the browser</p>
+
+    <div class="test-section info">
+        <h2>Test Controls</h2>
+        <button onclick="testWorkflowsAPI()">Test Workflows API</button>
+        <button onclick="testBlocksAPI()">Test Blocks API</button>
+        <button onclick="testHealthAPI()">Test Health API</button>
+        <button onclick="clearResults()">Clear Results</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        function addResult(title, content, type = 'info') {
+            const resultsDiv = document.getElementById('results');
+            const section = document.createElement('div');
+            section.className = `test-section ${type}`;
+            section.innerHTML = `
+                <h3>${title}</h3>
+                <pre>${content}</pre>
+            `;
+            resultsDiv.appendChild(section);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function testHealthAPI() {
+            try {
+                addResult('Testing Health API...', 'Fetching from ' + API_BASE + '/health', 'info');
+                
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                addResult(
+                    'Health API Response',
+                    `Status: ${response.status}\n\n` + JSON.stringify(data, null, 2),
+                    response.ok ? 'success' : 'error'
+                );
+            } catch (error) {
+                addResult('Health API Error', error.message, 'error');
+            }
+        }
+
+        async function testWorkflowsAPI() {
+            try {
+                addResult('Testing Workflows API...', 'Fetching from ' + API_BASE + '/api/workflows/', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/workflows/`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const workflows = await response.json();
+                
+                addResult(
+                    'Workflows API Response',
+                    `Status: ${response.status}\n` +
+                    `Workflows Found: ${workflows.length}\n\n` +
+                    JSON.stringify(workflows, null, 2),
+                    'success'
+                );
+                
+                // Display workflow summary
+                if (workflows.length > 0) {
+                    const summary = workflows.map((w, i) => 
+                        `${i + 1}. ${w.name} (ID: ${w.id}) - ${w.nodes.length} nodes, ${w.edges.length} edges`
+                    ).join('\n');
+                    
+                    addResult('Workflow Summary', summary, 'success');
+                }
+            } catch (error) {
+                addResult('Workflows API Error', error.message + '\n\nStack: ' + error.stack, 'error');
+            }
+        }
+
+        async function testBlocksAPI() {
+            try {
+                addResult('Testing Blocks API...', 'Fetching from ' + API_BASE + '/api/blocks/', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/blocks/`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const blocks = await response.json();
+                
+                addResult(
+                    'Blocks API Response',
+                    `Status: ${response.status}\n` +
+                    `Blocks Found: ${blocks.length}\n\n` +
+                    JSON.stringify(blocks, null, 2),
+                    'success'
+                );
+            } catch (error) {
+                addResult('Blocks API Error', error.message, 'error');
+            }
+        }
+
+        // Auto-run tests on page load
+        window.onload = function() {
+            addResult('Page Loaded', 'Running automatic tests...', 'info');
+            setTimeout(() => {
+                testHealthAPI();
+                setTimeout(() => testWorkflowsAPI(), 1000);
+                setTimeout(() => testBlocksAPI(), 2000);
+            }, 500);
+        };
+    </script>
+</body>
+</html>
