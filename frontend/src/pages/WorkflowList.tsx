@@ -62,7 +62,7 @@ const WorkflowList = () => {
   };
 
   const handleEdit = (workflowId: number) => {
-    navigate(`/workflows/${workflowId}/edit`);
+    navigate(`/workflows/${workflowId}`);
   };
 
   const handleRun = async (workflowId: number) => {

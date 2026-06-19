@@ -102,6 +102,12 @@ async def get_current_user(
                 self.hashed_password = "dev_mode_no_password"
                 self.created_at = datetime.utcnow()
                 self.updated_at = datetime.utcnow()
+                # Add empty relationship attributes
+                self.projects = []
+                self.workflows = []
+                self.credentials = []
+                self.audit_logs = []
+                self.blocks = []
         
         return DevelopmentUser()
     

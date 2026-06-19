@@ -68,11 +68,15 @@ const WorkflowEditor = () => {
   const loadWorkflowFromServer = async (workflowId: string) => {
     try {
       const token = localStorage.getItem('token');
+      console.log('Loading workflow:', workflowId);
       const response = await axios.get(`http://localhost:8000/api/workflows/${workflowId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       const workflow = response.data;
+      console.log('Workflow data received:', workflow);
+      console.log('Nodes count:', workflow.nodes?.length);
+      console.log('Edges count:', workflow.edges?.length);
       
       // Transform backend data to React Flow format
       const flowNodes = workflow.nodes.map((node: any) => ({
@@ -95,6 +99,9 @@ const WorkflowEditor = () => {
         animated: true,
       }));
 
+      console.log('Transformed nodes:', flowNodes);
+      console.log('Transformed edges:', flowEdges);
+
       loadWorkflow({
         id: workflow.id,
         name: workflow.name,
@@ -103,7 +110,8 @@ const WorkflowEditor = () => {
         edges: flowEdges,
       });
 
-      toast.success('Workflow loaded successfully');
+      console.log('Workflow loaded into store');
+      toast.success(`Workflow loaded: ${flowNodes.length} nodes, ${flowEdges.length} edges`);
     } catch (error: any) {
       console.error('Failed to load workflow:', error);
       toast.error(error.response?.data?.detail || 'Failed to load workflow');
@@ -295,19 +303,49 @@ const WorkflowEditor = () => {
   const handleStopRecording = async () => {
     try {
       const token = localStorage.getItem('token');
+      
+      // Ask user if they want to save as workflow
+      const saveAsWorkflow = window.confirm('Save recording as a workflow?');
+      
+      let requestBody: any = {};
+      
+      if (saveAsWorkflow) {
+        const workflowNameInput = prompt('Enter workflow name:');
+        if (!workflowNameInput || !workflowNameInput.trim()) {
+          toast.error('Workflow name is required to save');
+          return;
+        }
+        
+        requestBody = {
+          save_as_workflow: true,
+          workflow_name: workflowNameInput.trim(),
+          project_id: 1 // TODO: Get from context or selection
+        };
+      }
+      
       const response = await axios.post(
         'http://localhost:8000/api/recorder/stop',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
+        requestBody,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: saveAsWorkflow ? {
+            save_as_workflow: true,
+            workflow_name: requestBody.workflow_name,
+            project_id: requestBody.project_id
+          } : {}
+        }
       );
 
       setIsRecording(false);
       setStatus('idle');
       
-      // Load recorded actions as nodes
-      if (response.data.actions && response.data.actions.length > 0) {
-        toast.success(`Recording stopped. ${response.data.actions.length} actions captured.`);
-        // TODO: Convert actions to nodes and add to canvas
+      // Check if workflow was created
+      if (response.data.workflow_id) {
+        toast.success(`Recording saved as workflow! ${response.data.actions_count} actions captured.`);
+        // Navigate to the created workflow
+        navigate(`/workflows/${response.data.workflow_id}`);
+      } else if (response.data.actions && response.data.actions.length > 0) {
+        toast.success(`Recording stopped. ${response.data.actions_count} actions captured.`);
       } else {
         toast.info('Recording stopped. No actions captured.');
       }

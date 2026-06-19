@@ -205,4 +205,113 @@ async def delete_workflow(
     db.commit()
     return None
 
+
+@router.post("/{workflow_id}/execute")
+async def execute_workflow(
+    workflow_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Execute a workflow"""
+    import uuid
+    from app.services.workflow_executor import WorkflowExecutor
+    
+    # Get workflow
+    workflow = db.query(models.Workflow).filter(
+        models.Workflow.id == workflow_id,
+        models.Workflow.creator_id == current_user.id
+    ).first()
+    
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found"
+        )
+    
+    # Generate run ID
+    run_id = str(uuid.uuid4())
+    
+    # Create workflow run record
+    workflow_run = models.WorkflowRun(
+        workflow_id=workflow.id,
+        run_id=run_id,
+        status=models.WorkflowStatus.DRAFT,
+        meta_data={}
+    )
+    db.add(workflow_run)
+    db.commit()
+    db.refresh(workflow_run)
+    
+    try:
+        # Prepare nodes and edges for execution
+        nodes_data = [
+            {
+                "node_id": node.node_id,
+                "node_type": node.node_type.value,
+                "label": node.label,
+                "config": node.config or {},
+                "metadata": node.meta_data or {}
+            }
+            for node in workflow.nodes
+        ]
+        
+        edges_data = [
+            {
+                "edge_id": edge.edge_id,
+                "source_node_id": edge.source_node_id,
+                "target_node_id": edge.target_node_id
+            }
+            for edge in workflow.edges
+        ]
+        
+        # Execute workflow
+        executor = WorkflowExecutor()
+        result = await executor.execute(
+            nodes=nodes_data,
+            edges=edges_data,
+            inputs={},
+            run_id=run_id
+        )
+        
+        # Update workflow run with results
+        workflow_run.status = models.WorkflowStatus.COMPLETED
+        workflow_run.started_at = result.get("started_at")
+        workflow_run.completed_at = result.get("completed_at")
+        workflow_run.duration_seconds = result.get("duration_seconds")
+        workflow_run.result = result.get("result", {})
+        
+        # Save logs
+        for log_data in result.get("logs", []):
+            log = models.WorkflowLog(
+                run_id=workflow_run.id,
+                node_id=log_data.get("node_id"),
+                level=log_data.get("level", "INFO"),
+                message=log_data.get("message", ""),
+                screenshot_path=log_data.get("screenshot_path"),
+                meta_data=log_data.get("metadata", {})
+            )
+            db.add(log)
+        
+        db.commit()
+        db.refresh(workflow_run)
+        
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "message": "Workflow executed successfully",
+            "duration_seconds": result.get("duration_seconds"),
+            "logs_count": len(result.get("logs", []))
+        }
+        
+    except Exception as e:
+        # Update workflow run with error
+        workflow_run.status = models.WorkflowStatus.FAILED
+        workflow_run.error_message = str(e)
+        db.commit()
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Workflow execution failed: {str(e)}"
+        )
+
 # Made with Bob
