@@ -39,7 +39,7 @@ async def list_executions(
     if status_filter:
         query = query.filter(models.WorkflowRun.status == status_filter)
     
-    runs = query.order_by(models.WorkflowRun.created_at.desc()).offset(skip).limit(limit).all()
+    runs = query.order_by(models.WorkflowRun.started_at.desc()).offset(skip).limit(limit).all()
     return runs
 
 

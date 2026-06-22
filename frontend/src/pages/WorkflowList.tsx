@@ -66,6 +66,13 @@ const WorkflowList = () => {
   };
 
   const handleRun = async (workflowId: number) => {
+    // Prompt user for URL
+    const url = prompt('Enter the URL to execute the workflow on:', 'https://example.com');
+    
+    if (!url) {
+      return; // User cancelled
+    }
+    
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`http://localhost:8000/api/workflows/${workflowId}/execute`, {
@@ -74,6 +81,7 @@ const WorkflowList = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ url }),
       });
 
       if (!response.ok) {

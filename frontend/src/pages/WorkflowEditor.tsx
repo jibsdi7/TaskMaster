@@ -374,11 +374,28 @@ const WorkflowEditor = () => {
       );
 
       setStatus('idle');
-      toast.success('Workflow execution started');
       
-      // Navigate to execution details
-      if (response.data.run_id) {
-        navigate(`/executions/${response.data.run_id}`);
+      // Show success message with execution details
+      const runId = response.data.run_id;
+      const statusMsg = response.data.status;
+      const duration = response.data.duration_seconds;
+      
+      if (statusMsg === 'completed') {
+        toast.success(`Workflow executed successfully! Duration: ${duration?.toFixed(2) || 0}s`);
+      } else if (statusMsg === 'failed') {
+        toast.warning(`Workflow execution failed. Check backend logs for details.`);
+      } else {
+        toast.success('Workflow execution started. Check browser window for automation.');
+      }
+      
+      // Try to navigate to execution details (will work if database is connected)
+      if (runId) {
+        // Don't navigate immediately - give user option
+        setTimeout(() => {
+          if (window.confirm('View execution details? (Requires database connection)')) {
+            navigate(`/executions/${runId}`);
+          }
+        }, 1000);
       }
     } catch (error: any) {
       console.error('Failed to run workflow:', error);

@@ -1,6 +1,8 @@
 """
 TaskMaster - Main FastAPI Application
 """
+import sys
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -14,6 +16,10 @@ from app.api.projects import router as projects_router
 from app.core.config import settings
 from app.db.database import engine
 from app.db import models
+
+# Fix for Windows asyncio subprocess issue with Playwright
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 @asynccontextmanager

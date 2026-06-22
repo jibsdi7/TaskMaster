@@ -2,6 +2,7 @@
 Enhanced Workflow Execution Engine with Branching, Loops, and Parallel Execution
 """
 import asyncio
+import sys
 from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
@@ -10,6 +11,10 @@ import time
 
 from app.core.config import settings
 from app.db.models import NodeType, WorkflowStatus
+
+# Fix for Windows asyncio subprocess issue
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 class ExecutionContext:
@@ -88,8 +93,8 @@ class WorkflowExecutor:
             
             return {
                 "status": WorkflowStatus.COMPLETED.value,
-                "started_at": start_time.isoformat(),
-                "completed_at": end_time.isoformat(),
+                "started_at": start_time,
+                "completed_at": end_time,
                 "duration_seconds": duration,
                 "logs": self.logs,
                 "screenshots": self.screenshots,
@@ -108,8 +113,8 @@ class WorkflowExecutor:
             
             return {
                 "status": WorkflowStatus.FAILED.value,
-                "started_at": start_time.isoformat(),
-                "completed_at": end_time.isoformat(),
+                "started_at": start_time,
+                "completed_at": end_time,
                 "duration_seconds": duration,
                 "logs": self.logs,
                 "screenshots": self.screenshots,
@@ -177,30 +182,65 @@ class WorkflowExecutor:
         nodes: List[Dict[str, Any]],
         graph: Dict[str, List[Dict[str, Any]]],
         executed_nodes: Set[str],
+        run_id: str,
+        parallel: bool = False
+    ):
+        """Execute workflow from given nodes with optional parallel execution"""
+        if parallel and len(node_ids) > 1:
+            # Execute nodes in parallel
+            tasks = []
+            for node_id in node_ids:
+                if node_id not in executed_nodes:
+                    node = next((n for n in nodes if n.get("node_id") == node_id), None)
+                    if node:
+                        tasks.append(self._execute_single_node_flow(
+                            node, nodes, graph, executed_nodes, run_id
+                        ))
+            
+            if tasks:
+                await asyncio.gather(*tasks)
+        else:
+            # Execute nodes sequentially
+            for node_id in node_ids:
+                if node_id in executed_nodes:
+                    continue
+                
+                node = next((n for n in nodes if n.get("node_id") == node_id), None)
+                if not node:
+                    continue
+                
+                await self._execute_single_node_flow(node, nodes, graph, executed_nodes, run_id)
+    
+    async def _execute_single_node_flow(
+        self,
+        node: Dict[str, Any],
+        nodes: List[Dict[str, Any]],
+        graph: Dict[str, List[Dict[str, Any]]],
+        executed_nodes: Set[str],
         run_id: str
     ):
-        """Execute workflow from given nodes"""
-        for node_id in node_ids:
-            if node_id in executed_nodes:
-                continue
-            
-            node = next((n for n in nodes if n.get("node_id") == node_id), None)
-            if not node:
-                continue
-            
-            # Execute node with retry logic
-            result = await self._execute_node_with_retry(node, run_id)
-            executed_nodes.add(node_id)
-            
-            # Store result in context
-            self.execution_context.set_node_result(node_id, result)
-            
-            # Determine next nodes based on node type and result
-            next_nodes = await self._determine_next_nodes(node, graph, result)
-            
-            # Execute next nodes
-            if next_nodes:
-                await self._execute_from_nodes(next_nodes, nodes, graph, executed_nodes, run_id)
+        """Execute a single node and its downstream flow"""
+        node_id = node.get("node_id")
+        
+        # Execute node with retry logic
+        result = await self._execute_node_with_retry(node, run_id)
+        executed_nodes.add(node_id)
+        
+        # Store result in context
+        self.execution_context.set_node_result(node_id, result)
+        
+        # Determine next nodes based on node type and result
+        next_nodes = await self._determine_next_nodes(node, graph, result)
+        
+        # Check if next nodes should be executed in parallel
+        config = node.get("config", {})
+        parallel_next = config.get("parallelExecution", False)
+        
+        # Execute next nodes
+        if next_nodes:
+            await self._execute_from_nodes(
+                next_nodes, nodes, graph, executed_nodes, run_id, parallel=parallel_next
+            )
     
     async def _execute_node_with_retry(
         self,

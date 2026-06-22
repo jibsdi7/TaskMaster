@@ -158,10 +158,12 @@ class PlaywrightScriptParser:
             # Parse page.click() or .click()
             elif '.click()' in line:
                 selector = PlaywrightScriptParser._extract_selector(line)
+                # Extract better label from name parameter if available
+                label = PlaywrightScriptParser._extract_label(line, selector, "Click")
                 nodes.append({
                     "node_id": f"node_{node_id}",
                     "node_type": NodeType.CLICK.value,
-                    "label": f"Click {selector}",
+                    "label": label,
                     "position_x": 100,
                     "position_y": 100 + (node_id * 100),
                     "config": {
@@ -263,8 +265,38 @@ class PlaywrightScriptParser:
     
     @staticmethod
     def _extract_selector(line: str) -> str:
-        """Extract selector from Playwright line"""
-        # Try to extract from getByRole, getByLabel, getByText, etc.
+        """Extract selector from Playwright line, handling chained locators"""
+        # For chained locators like: page.get_by_role("row", name="X").get_by_role("button")
+        # We need to extract the FULL chain, not just the first part
+        
+        # Check if this is a chained locator (multiple get_by_* calls)
+        get_by_count = line.count('get_by_')
+        
+        if get_by_count > 1:
+            # Chained locator - extract the full chain for better context
+            # Example: get_by_role("row", name="Choose This Flight 4346").get_by_role("button")
+            # We'll extract: "row:Choose This Flight 4346 > button"
+            
+            parts = []
+            # Find all get_by_role calls with their parameters
+            for match in re.finditer(r'get_by_role\(["\']([^"\']+)["\'](?:,\s*name=["\']([^"\']+)["\'])?\)', line):
+                role = match.group(1)
+                name = match.group(2)
+                if name:
+                    parts.append(f"{role}:{name}")
+                else:
+                    parts.append(role)
+            
+            if parts:
+                return " > ".join(parts)
+        
+        # Single locator - try to extract from get_by_role with name parameter (most descriptive)
+        # Example: page.get_by_role("button", name="Find Flights")
+        name_match = re.search(r'get_by_role\([^,]+,\s*name=["\']([^"\']+)["\']', line)
+        if name_match:
+            return name_match.group(1)
+        
+        # Try getByRole, getByLabel, getByText, etc. (camelCase)
         patterns = [
             r'getByRole\(["\']([^"\']+)["\']',
             r'getByLabel\(["\']([^"\']+)["\']',
@@ -274,6 +306,19 @@ class PlaywrightScriptParser:
         ]
         
         for pattern in patterns:
+            match = re.search(pattern, line)
+            if match:
+                return match.group(1)
+        
+        # Try snake_case versions (Python style)
+        snake_patterns = [
+            r'get_by_role\(["\']([^"\']+)["\']',
+            r'get_by_label\(["\']([^"\']+)["\']',
+            r'get_by_text\(["\']([^"\']+)["\']',
+            r'get_by_placeholder\(["\']([^"\']+)["\']',
+        ]
+        
+        for pattern in snake_patterns:
             match = re.search(pattern, line)
             if match:
                 return match.group(1)
@@ -289,5 +334,22 @@ class PlaywrightScriptParser:
         if match:
             return match.group(1)
         return ""
+    
+    @staticmethod
+    def _extract_label(line: str, selector: str, action: str) -> str:
+        """Extract a descriptive label for the action"""
+        # Check for name parameter in get_by_role
+        name_match = re.search(r'name=["\']([^"\']+)["\']', line)
+        if name_match:
+            role_match = re.search(r'get_by_role\(["\']([^"\']+)["\']', line)
+            role = role_match.group(1) if role_match else "element"
+            return f"{action} {role}: {name_match.group(1)}"
+        
+        # Use selector as label if available
+        if selector:
+            return f"{action} {selector}"
+        
+        # Fallback to just action
+        return action
 
 # Made with Bob

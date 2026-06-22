@@ -1,9 +1,10 @@
 """
 Workflow API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional, Dict, Any
+from datetime import datetime
 
 from app.db.database import get_db
 from app.db import models
@@ -209,12 +210,22 @@ async def delete_workflow(
 @router.post("/{workflow_id}/execute")
 async def execute_workflow(
     workflow_id: int,
+    request_body: Optional[Dict[str, Any]] = Body(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """Execute a workflow"""
+    """Execute a workflow with optional URL parameter"""
     import uuid
-    from app.services.workflow_executor import WorkflowExecutor
+    import sys
+    import platform
+    
+    # Use sync executor on Windows to avoid asyncio subprocess issues
+    if sys.platform == 'win32' or platform.system() == 'Windows':
+        from app.services.workflow_executor_sync import WorkflowExecutorSync
+        use_sync = True
+    else:
+        from app.services.workflow_executor import WorkflowExecutor
+        use_sync = False
     
     # Get workflow
     workflow = db.query(models.Workflow).filter(
@@ -243,6 +254,17 @@ async def execute_workflow(
     db.refresh(workflow_run)
     
     try:
+        # Get URL from request body if provided
+        url = request_body.get("url") if request_body else None
+        print(f"\n{'='*80}")
+        print(f"[EXECUTE] Starting workflow execution")
+        print(f"[EXECUTE] Workflow ID: {workflow_id}")
+        print(f"[EXECUTE] URL parameter: {url}")
+        print(f"[EXECUTE] Request body: {request_body}")
+        print(f"[EXECUTE] Platform: {sys.platform}")
+        print(f"[EXECUTE] Using sync executor: {use_sync}")
+        print(f"{'='*80}\n")
+        
         # Prepare nodes and edges for execution
         nodes_data = [
             {
@@ -255,28 +277,82 @@ async def execute_workflow(
             for node in workflow.nodes
         ]
         
-        edges_data = [
-            {
-                "edge_id": edge.edge_id,
-                "source_node_id": edge.source_node_id,
-                "target_node_id": edge.target_node_id
-            }
-            for edge in workflow.edges
-        ]
+        # Check if there's an OPEN_URL node
+        has_open_url = any(node["node_type"] == models.NodeType.OPEN_URL.value for node in nodes_data)
         
-        # Execute workflow
-        executor = WorkflowExecutor()
-        result = await executor.execute(
-            nodes=nodes_data,
-            edges=edges_data,
-            inputs={},
-            run_id=run_id
-        )
+        # If no OPEN_URL node and URL is provided, add one at the start
+        if not has_open_url and url:
+            open_url_node = {
+                "node_id": "start_url_node",
+                "node_type": models.NodeType.OPEN_URL.value,
+                "label": "Navigate to URL",
+                "config": {"url": url, "timeout": 30000},
+                "metadata": {}
+            }
+            nodes_data.insert(0, open_url_node)
+            
+            # Update edges to connect start node to first original node
+            if nodes_data and len(nodes_data) > 1:
+                first_original_node = nodes_data[1]["node_id"]
+                edges_data = [
+                    {
+                        "edge_id": "start_edge",
+                        "source_node_id": "start_url_node",
+                        "target_node_id": first_original_node
+                    }
+                ] + [
+                    {
+                        "edge_id": edge.edge_id,
+                        "source_node_id": edge.source_node_id,
+                        "target_node_id": edge.target_node_id
+                    }
+                    for edge in workflow.edges
+                ]
+            else:
+                edges_data = []
+        else:
+            edges_data = [
+                {
+                    "edge_id": edge.edge_id,
+                    "source_node_id": edge.source_node_id,
+                    "target_node_id": edge.target_node_id
+                }
+                for edge in workflow.edges
+            ]
+        
+        # Execute workflow with appropriate executor
+        print(f"[EXECUTE] Nodes count: {len(nodes_data)}")
+        print(f"[EXECUTE] Edges count: {len(edges_data)}")
+        print(f"[EXECUTE] First node: {nodes_data[0] if nodes_data else 'None'}")
+        
+        if use_sync:
+            print(f"[EXECUTE] Using WorkflowExecutorSync")
+            executor = WorkflowExecutorSync()
+            print(f"[EXECUTE] Calling executor.execute()...")
+            result = executor.execute(
+                nodes=nodes_data,
+                edges=edges_data,
+                inputs={},
+                run_id=run_id
+            )
+            print(f"[EXECUTE] Execution completed. Result: {result}")
+        else:
+            print(f"[EXECUTE] Using WorkflowExecutor (async)")
+            executor = WorkflowExecutor()
+            result = await executor.execute(
+                nodes=nodes_data,
+                edges=edges_data,
+                inputs={},
+                run_id=run_id
+            )
         
         # Update workflow run with results
         workflow_run.status = models.WorkflowStatus.COMPLETED
-        workflow_run.started_at = result.get("started_at")
-        workflow_run.completed_at = result.get("completed_at")
+        # Convert datetime objects or ISO strings to datetime
+        started_at = result.get("started_at")
+        completed_at = result.get("completed_at")
+        workflow_run.started_at = started_at if isinstance(started_at, datetime) else datetime.fromisoformat(started_at) if started_at else None
+        workflow_run.completed_at = completed_at if isinstance(completed_at, datetime) else datetime.fromisoformat(completed_at) if completed_at else None
         workflow_run.duration_seconds = result.get("duration_seconds")
         workflow_run.result = result.get("result", {})
         
@@ -297,14 +373,22 @@ async def execute_workflow(
         
         return {
             "run_id": run_id,
-            "status": "completed",
+            "status": result.get("status", "completed"),
             "message": "Workflow executed successfully",
             "duration_seconds": result.get("duration_seconds"),
-            "logs_count": len(result.get("logs", []))
+            "logs_count": len(result.get("logs", [])),
+            "logs": result.get("logs", []),  # Include actual logs for debugging
+            "result": result.get("result", {}),  # Include result details
+            "error_message": result.get("error_message")  # Include error if any
         }
         
     except Exception as e:
         # Update workflow run with error
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[ERROR] Workflow execution failed: {str(e)}")
+        print(f"[ERROR] Traceback: {error_details}")
+        
         workflow_run.status = models.WorkflowStatus.FAILED
         workflow_run.error_message = str(e)
         db.commit()
