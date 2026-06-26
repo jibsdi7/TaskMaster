@@ -331,17 +331,30 @@ class WorkflowExecutorSync:
         """Parse a single Playwright selector"""
         import re
         
+        # Check for :nth-match(N) modifier
+        nth_index = None
+        nth_match = re.search(r':nth-match\((\d+)\)$', selector)
+        if nth_match:
+            nth_index = int(nth_match.group(1))
+            selector = selector[:nth_match.start()]  # Remove :nth-match from selector
+        
         # role=button[name="Find Flights"]
         role_match = re.match(r'role=(\w+)\[name=["\']([^"\']+)["\']\]', selector)
         if role_match:
             role, name = role_match.groups()
-            return self.page.get_by_role(role, name=name)
+            locator = self.page.get_by_role(role, name=name)
+            if nth_index is not None:
+                locator = locator.nth(nth_index)
+            return locator
         
         # role=button (without name)
         role_simple_match = re.match(r'role=(\w+)$', selector)
         if role_simple_match:
             role = role_simple_match.group(1)
-            return self.page.get_by_role(role)
+            locator = self.page.get_by_role(role)
+            if nth_index is not None:
+                locator = locator.nth(nth_index)
+            return locator
         
         # placeholder="First Last"
         placeholder_match = re.match(r'placeholder=["\']([^"\']+)["\']', selector)
@@ -362,7 +375,10 @@ class WorkflowExecutorSync:
             return self.page.get_by_text(text)
         
         # Fallback to CSS/XPath selector
-        return self.page.locator(selector)
+        locator = self.page.locator(selector)
+        if nth_index is not None:
+            locator = locator.nth(nth_index)
+        return locator
     
     def _execute_click(self, config: Dict[str, Any]) -> Any:
         """Execute click with support for Playwright selectors"""
@@ -383,27 +399,45 @@ class WorkflowExecutorSync:
             raise
     
     def _execute_type(self, config: Dict[str, Any]) -> Any:
-        """Execute type/fill with Playwright selector support"""
+        """Execute type/fill with realistic user interaction"""
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
         
         try:
             locator = self._parse_selector(selector)
-            locator.fill(value, timeout=timeout)
+            
+            # Simulate realistic user interaction:
+            # 1. Click to focus the field
+            locator.click(timeout=timeout)
+            
+            # 2. Select all existing content (Ctrl+A)
+            locator.press("Control+a")
+            
+            # 3. Type the new value (this will replace selected content)
+            locator.fill(value)
+            
+            # 4. Press Tab to move to next field (triggers validation/events)
+            locator.press("Tab")
+            
             return {"typed": value}
         except Exception as e:
             self._log("ERROR", f"Type/fill failed: {str(e)}")
             raise
     
     def _execute_select(self, config: Dict[str, Any]) -> Any:
-        """Execute select option"""
+        """Execute select option with Playwright selector support"""
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
         
-        self.page.locator(selector).select_option(value, timeout=timeout)
-        return {"selected": value}
+        try:
+            locator = self._parse_selector(selector)
+            locator.select_option(value, timeout=timeout)
+            return {"selected": value}
+        except Exception as e:
+            self._log("ERROR", f"Select failed: {str(e)}")
+            raise
     
     def _execute_delay(self, config: Dict[str, Any]) -> Any:
         """Execute delay"""

@@ -180,18 +180,53 @@ class PlaywrightScriptParser:
                     continue
                     
                 selector = PlaywrightScriptParser._extract_selector(line)
-                # Extract better label from name parameter if available
+                
+                # Intelligent node type detection based on selector
+                node_type = NodeType.CLICK.value
                 label = PlaywrightScriptParser._extract_label(line, selector, "Click")
+                config = {
+                    "selector": selector,
+                    "timeout": settings.PLAYWRIGHT_TIMEOUT
+                }
+                
+                # Detect SELECT dropdowns: select[name="..."]
+                if selector and 'select[name=' in selector:
+                    node_type = NodeType.SELECT.value
+                    # Extract the name attribute for better label
+                    name_match = re.search(r'select\[name=["\']([^"\']+)["\']', selector)
+                    if name_match:
+                        label = f"Select from {name_match.group(1)}"
+                    else:
+                        label = f"Select {selector}"
+                    # Note: Value will need to be filled in manually or detected from next action
+                    config["value"] = ""
+                
+                # Detect TYPE fields: placeholder="...", input fields, textareas
+                elif selector and (
+                    'placeholder=' in selector or
+                    selector.startswith('input[') or
+                    selector.startswith('textarea[') or
+                    'type="text"' in selector or
+                    'type="email"' in selector or
+                    'type="password"' in selector
+                ):
+                    node_type = NodeType.TYPE.value
+                    # Extract placeholder for better label
+                    placeholder_match = re.search(r'placeholder=["\']([^"\']+)["\']', selector)
+                    if placeholder_match:
+                        label = f"Fill {placeholder_match.group(1)}"
+                    else:
+                        label = f"Fill {selector}"
+                    # Note: Value will need to be filled in manually or detected from next action
+                    config["value"] = ""
+                
                 nodes.append({
                     "node_id": f"node_{node_id}",
-                    "node_type": NodeType.CLICK.value,
+                    "node_type": node_type,
                     "label": label,
                     "position_x": 100,
                     "position_y": 100 + (node_id * 100),
-                    "config": {
-                        "selector": selector,
-                        "timeout": settings.PLAYWRIGHT_TIMEOUT
-                    },
+                    "config": config,
                     "metadata": {"original_line": line}
                 })
                 node_id += 1
@@ -233,14 +268,20 @@ class PlaywrightScriptParser:
                 })
                 node_id += 1
             
-            # Parse page.selectOption() or .selectOption()
+            # Parse page.selectOption() or .select_option()
             elif '.selectOption(' in line or '.select_option(' in line:
                 selector = PlaywrightScriptParser._extract_selector(line)
-                value = PlaywrightScriptParser._extract_string(line, start_after='selectOption')
+                # Extract value from select_option("value") call
+                value_match = re.search(r'\.select_option\(["\']([^"\']+)["\']', line)
+                value = value_match.group(1) if value_match else ""
+                
+                # Create better label
+                label = f"Select '{value}'" if value else f"Select {selector}"
+                
                 nodes.append({
                     "node_id": f"node_{node_id}",
                     "node_type": NodeType.SELECT.value,
-                    "label": f"Select {selector}",
+                    "label": label,
                     "position_x": 100,
                     "position_y": 100 + (node_id * 100),
                     "config": {
@@ -316,11 +357,20 @@ class PlaywrightScriptParser:
         
         # get_by_role with name parameter
         # Example: page.get_by_role("button", name="Find Flights") -> role=button[name="Find Flights"]
+        # Example: page.get_by_role("cell", name="Choose This Flight").nth(3) -> role=cell[name="Choose This Flight"]:nth-match(3)
         role_name_match = re.search(r'get_by_role\(["\']([^"\']+)["\'],\s*name=["\']([^"\']+)["\']', line)
         if role_name_match:
             role = role_name_match.group(1)
             name = role_name_match.group(2)
-            return f'role={role}[name="{name}"]'
+            selector = f'role={role}[name="{name}"]'
+            
+            # Handle .nth(N) modifier
+            nth_match = re.search(r'\.nth\((\d+)\)', line)
+            if nth_match:
+                nth_index = nth_match.group(1)
+                selector = f"{selector}:nth-match({nth_index})"
+            
+            return selector
         
         # get_by_placeholder
         # Example: page.get_by_placeholder("First Last") -> placeholder="First Last"
@@ -346,11 +396,27 @@ class PlaywrightScriptParser:
         if role_match:
             return f'role={role_match.group(1)}'
         
-        # locator with CSS/XPath selector
+        # locator with CSS/XPath selector (handle escaped quotes)
+        # Example: page.locator("select[name=\"fromPort\"]") -> select[name="fromPort"]
         # Example: page.locator("#submit-btn") -> #submit-btn
-        locator_match = re.search(r'locator\(["\']([^"\']+)["\']', line)
+        # Try double-quote pattern first (handles escaped quotes properly)
+        locator_match = re.search(r'locator\("([^"]*(?:\\"[^"]*)*)"\)', line)
+        if not locator_match:
+            # Try single-quote pattern
+            locator_match = re.search(r"locator\('([^']*(?:\\'[^']*)*)'", line)
+        
         if locator_match:
-            return locator_match.group(1)
+            selector = locator_match.group(1)
+            # Unescape quotes
+            selector = selector.replace(r'\"', '"').replace(r"\'", "'")
+            
+            # Handle .nth(N) modifier
+            nth_match = re.search(r'\.nth\((\d+)\)', line)
+            if nth_match:
+                nth_index = nth_match.group(1)
+                selector = f"{selector}:nth-match({nth_index})"
+            
+            return selector
         
         # Fallback to generic string extraction
         return PlaywrightScriptParser._extract_string(line, None)

@@ -221,7 +221,8 @@ async def stop_recording(
             creator_id=current_user.id,
             meta_data={
                 **workflow_data.get("metadata", {}),
-                "recorded_url": session["url"]
+                "recorded_url": session["url"],
+                "playwright_script": playwright_script if 'playwright_script' in locals() else ""
             }
         )
         
