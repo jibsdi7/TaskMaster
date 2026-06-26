@@ -190,21 +190,74 @@ async def delete_workflow(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """Delete a workflow"""
-    workflow = db.query(models.Workflow).filter(
-        models.Workflow.id == workflow_id,
-        models.Workflow.creator_id == current_user.id
-    ).first()
-    
-    if not workflow:
+    """Delete a workflow and all related data"""
+    try:
+        workflow = db.query(models.Workflow).filter(
+            models.Workflow.id == workflow_id,
+            models.Workflow.creator_id == current_user.id
+        ).first()
+        
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow not found"
+            )
+        
+        print(f"[DELETE] Deleting workflow {workflow_id}")
+        
+        # Force reload - fixed WorkflowLog deletion
+        # Manually delete related records to avoid foreign key constraint issues
+        # First, get all run IDs for this workflow
+        run_ids = [run.id for run in db.query(models.WorkflowRun).filter(
+            models.WorkflowRun.workflow_id == workflow_id
+        ).all()]
+        
+        # Delete workflow logs (they reference runs)
+        logs_deleted = 0
+        if run_ids:
+            logs_deleted = db.query(models.WorkflowLog).filter(
+                models.WorkflowLog.run_id.in_(run_ids)
+            ).delete(synchronize_session=False)
+        print(f"[DELETE] Deleted {logs_deleted} workflow logs")
+        
+        # Delete workflow runs
+        runs_deleted = db.query(models.WorkflowRun).filter(
+            models.WorkflowRun.workflow_id == workflow_id
+        ).delete()
+        print(f"[DELETE] Deleted {runs_deleted} workflow runs")
+        
+        # Delete edges
+        edges_deleted = db.query(models.WorkflowEdge).filter(
+            models.WorkflowEdge.workflow_id == workflow_id
+        ).delete()
+        print(f"[DELETE] Deleted {edges_deleted} edges")
+        
+        # Delete nodes
+        nodes_deleted = db.query(models.WorkflowNode).filter(
+            models.WorkflowNode.workflow_id == workflow_id
+        ).delete()
+        print(f"[DELETE] Deleted {nodes_deleted} nodes")
+        
+        # Delete variables
+        vars_deleted = db.query(models.WorkflowVariable).filter(
+            models.WorkflowVariable.workflow_id == workflow_id
+        ).delete()
+        print(f"[DELETE] Deleted {vars_deleted} variables")
+        
+        # Finally delete the workflow itself
+        db.delete(workflow)
+        db.commit()
+        print(f"[DELETE] Workflow {workflow_id} deleted successfully")
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[DELETE ERROR] Failed to delete workflow {workflow_id}: {str(e)}")
+        db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete workflow: {str(e)}"
         )
-    
-    db.delete(workflow)
-    db.commit()
-    return None
 
 
 @router.post("/{workflow_id}/execute")
@@ -326,16 +379,23 @@ async def execute_workflow(
         print(f"[EXECUTE] First node: {nodes_data[0] if nodes_data else 'None'}")
         
         if use_sync:
-            print(f"[EXECUTE] Using WorkflowExecutorSync")
-            executor = WorkflowExecutorSync()
-            print(f"[EXECUTE] Calling executor.execute()...")
-            result = executor.execute(
-                nodes=nodes_data,
-                edges=edges_data,
-                inputs={},
-                run_id=run_id
-            )
-            print(f"[EXECUTE] Execution completed. Result: {result}")
+            print(f"[EXECUTE] Using WorkflowExecutorSync with asyncio.to_thread")
+            import asyncio
+            
+            def run_sync_executor():
+                """Run sync executor in isolated thread"""
+                executor = WorkflowExecutorSync()
+                return executor.execute(
+                    nodes=nodes_data,
+                    edges=edges_data,
+                    inputs={},
+                    run_id=run_id
+                )
+            
+            print(f"[EXECUTE] Calling executor.execute() via asyncio.to_thread...")
+            # Use asyncio.to_thread to properly isolate sync code from async context
+            result = await asyncio.to_thread(run_sync_executor)
+            print(f"[EXECUTE] Execution completed. Result keys: {result.keys() if result else 'None'}")
         else:
             print(f"[EXECUTE] Using WorkflowExecutor (async)")
             executor = WorkflowExecutor()

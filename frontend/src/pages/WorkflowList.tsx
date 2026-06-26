@@ -107,8 +107,12 @@ const WorkflowList = () => {
     }
 
     try {
+      const token = localStorage.getItem('token');
       const response = await fetch(`http://localhost:8000/api/workflows/${workflowId}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
       });
 
       if (!response.ok) {

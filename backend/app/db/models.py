@@ -131,7 +131,7 @@ class Workflow(Base):
     creator = relationship("User", back_populates="workflows")
     nodes = relationship("WorkflowNode", back_populates="workflow", cascade="all, delete-orphan")
     edges = relationship("WorkflowEdge", back_populates="workflow", cascade="all, delete-orphan")
-    runs = relationship("WorkflowRun", back_populates="workflow")
+    runs = relationship("WorkflowRun", back_populates="workflow", cascade="all, delete-orphan")
     variables = relationship("WorkflowVariable", back_populates="workflow", cascade="all, delete-orphan")
 
 

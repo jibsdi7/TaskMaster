@@ -75,10 +75,14 @@ const NodeInspector = () => {
     setLocalData((prev: any) => ({ ...prev, [field]: value }));
     
     // Update the node in the store
-    const updatedConfig = { ...selectedNode.data.config };
     if (field === 'label') {
       updateNode(selectedNodeId!, { label: value });
+    } else if (field === 'nodeType') {
+      // Update node type
+      updateNode(selectedNodeId!, { nodeType: value });
     } else {
+      // Update config fields
+      const updatedConfig = { ...selectedNode.data.config };
       updatedConfig[field] = value;
       updateNode(selectedNodeId!, { config: updatedConfig });
     }
@@ -156,14 +160,31 @@ const NodeInspector = () => {
 
       {/* Content */}
       <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
-        {/* Node Type Badge */}
+        {/* Node Type Selector */}
         <Box sx={{ mb: 2 }}>
-          <Chip
-            label={selectedNode.data.nodeType}
-            color="primary"
-            size="small"
-            sx={{ fontWeight: 600 }}
-          />
+          <FormControl fullWidth size="small">
+            <InputLabel sx={{ color: '#aaa' }}>Node Type</InputLabel>
+            <Select
+              value={localData.nodeType}
+              onChange={(e) => handleUpdate('nodeType', e.target.value)}
+              label="Node Type"
+              sx={{
+                backgroundColor: '#2a2a2a',
+                color: 'white',
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#666' },
+                '& .MuiSvgIcon-root': { color: 'white' },
+              }}
+            >
+              <MenuItem value="CLICK">Click</MenuItem>
+              <MenuItem value="TYPE">Type</MenuItem>
+              <MenuItem value="SELECT">Select</MenuItem>
+              <MenuItem value="HOVER">Hover</MenuItem>
+              <MenuItem value="UPLOAD_FILE">Upload File</MenuItem>
+              <MenuItem value="OPEN_URL">Open URL</MenuItem>
+              <MenuItem value="DELAY">Delay</MenuItem>
+            </Select>
+          </FormControl>
         </Box>
 
         {/* Basic Properties */}

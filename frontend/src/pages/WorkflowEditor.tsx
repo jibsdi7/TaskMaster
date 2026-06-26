@@ -307,7 +307,8 @@ const WorkflowEditor = () => {
       // Ask user if they want to save as workflow
       const saveAsWorkflow = window.confirm('Save recording as a workflow?');
       
-      let requestBody: any = {};
+      // Prepare query parameters based on whether we're saving as workflow
+      let params: any = {};
       
       if (saveAsWorkflow) {
         const workflowNameInput = prompt('Enter workflow name:');
@@ -316,7 +317,7 @@ const WorkflowEditor = () => {
           return;
         }
         
-        requestBody = {
+        params = {
           save_as_workflow: true,
           workflow_name: workflowNameInput.trim(),
           project_id: 1 // TODO: Get from context or selection
@@ -325,14 +326,10 @@ const WorkflowEditor = () => {
       
       const response = await axios.post(
         'http://localhost:8000/api/recorder/stop',
-        requestBody,
+        {}, // Empty body - backend expects query params
         {
           headers: { Authorization: `Bearer ${token}` },
-          params: saveAsWorkflow ? {
-            save_as_workflow: true,
-            workflow_name: requestBody.workflow_name,
-            project_id: requestBody.project_id
-          } : {}
+          params: params
         }
       );
 

@@ -118,6 +118,7 @@ const WorkflowCanvasInner = () => {
           animated: true,
           style: { stroke: '#1976d2', strokeWidth: 2 },
         }}
+        deleteKeyCode="Delete"
       >
         <Background
           color="#333"

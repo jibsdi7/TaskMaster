@@ -130,7 +130,25 @@ class PlaywrightScriptParser:
         lines = script.split('\n')
         node_id = 0
         
-        for line in lines:
+        # Pre-process to identify click+fill patterns
+        i = 0
+        skip_next_click = set()
+        while i < len(lines):
+            line = lines[i].strip()
+            # Check if this is a click followed by fill on same selector
+            if '.click()' in line and i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if '.fill(' in next_line:
+                    # Extract selectors from both lines
+                    click_selector = PlaywrightScriptParser._extract_selector(line)
+                    fill_selector = PlaywrightScriptParser._extract_selector(next_line)
+                    # If same selector, skip the click (it's just focusing the field)
+                    if click_selector == fill_selector:
+                        skip_next_click.add(i)
+            i += 1
+        
+        # Parse lines
+        for idx, line in enumerate(lines):
             line = line.strip()
             
             # Skip empty lines and comments
@@ -157,6 +175,10 @@ class PlaywrightScriptParser:
             
             # Parse page.click() or .click()
             elif '.click()' in line:
+                # Skip if this click is followed by fill on same selector
+                if idx in skip_next_click:
+                    continue
+                    
                 selector = PlaywrightScriptParser._extract_selector(line)
                 # Extract better label from name parameter if available
                 label = PlaywrightScriptParser._extract_label(line, selector, "Click")
@@ -250,7 +272,7 @@ class PlaywrightScriptParser:
         return nodes
     
     @staticmethod
-    def _extract_string(line: str, start_after: str = None) -> str:
+    def _extract_string(line: str, start_after: Optional[str] = None) -> str:
         """Extract string from line"""
         # Match strings in quotes
         if start_after:
@@ -265,7 +287,7 @@ class PlaywrightScriptParser:
     
     @staticmethod
     def _extract_selector(line: str) -> str:
-        """Extract selector from Playwright line, handling chained locators"""
+        """Extract selector from Playwright line in proper format for execution"""
         # For chained locators like: page.get_by_role("row", name="X").get_by_role("button")
         # We need to extract the FULL chain, not just the first part
         
@@ -275,7 +297,7 @@ class PlaywrightScriptParser:
         if get_by_count > 1:
             # Chained locator - extract the full chain for better context
             # Example: get_by_role("row", name="Choose This Flight 4346").get_by_role("button")
-            # We'll extract: "row:Choose This Flight 4346 > button"
+            # We'll extract: "role=row[name='Choose This Flight 4346'] >> role=button"
             
             parts = []
             # Find all get_by_role calls with their parameters
@@ -283,48 +305,55 @@ class PlaywrightScriptParser:
                 role = match.group(1)
                 name = match.group(2)
                 if name:
-                    parts.append(f"{role}:{name}")
+                    parts.append(f"role={role}[name='{name}']")
                 else:
-                    parts.append(role)
+                    parts.append(f"role={role}")
             
             if parts:
-                return " > ".join(parts)
+                return " >> ".join(parts)
         
-        # Single locator - try to extract from get_by_role with name parameter (most descriptive)
-        # Example: page.get_by_role("button", name="Find Flights")
-        name_match = re.search(r'get_by_role\([^,]+,\s*name=["\']([^"\']+)["\']', line)
-        if name_match:
-            return name_match.group(1)
+        # Single locator - extract with proper Playwright selector format
         
-        # Try getByRole, getByLabel, getByText, etc. (camelCase)
-        patterns = [
-            r'getByRole\(["\']([^"\']+)["\']',
-            r'getByLabel\(["\']([^"\']+)["\']',
-            r'getByText\(["\']([^"\']+)["\']',
-            r'getByPlaceholder\(["\']([^"\']+)["\']',
-            r'locator\(["\']([^"\']+)["\']',
-        ]
+        # get_by_role with name parameter
+        # Example: page.get_by_role("button", name="Find Flights") -> role=button[name="Find Flights"]
+        role_name_match = re.search(r'get_by_role\(["\']([^"\']+)["\'],\s*name=["\']([^"\']+)["\']', line)
+        if role_name_match:
+            role = role_name_match.group(1)
+            name = role_name_match.group(2)
+            return f'role={role}[name="{name}"]'
         
-        for pattern in patterns:
-            match = re.search(pattern, line)
-            if match:
-                return match.group(1)
+        # get_by_placeholder
+        # Example: page.get_by_placeholder("First Last") -> placeholder="First Last"
+        placeholder_match = re.search(r'get_by_placeholder\(["\']([^"\']+)["\']', line)
+        if placeholder_match:
+            return f'placeholder="{placeholder_match.group(1)}"'
         
-        # Try snake_case versions (Python style)
-        snake_patterns = [
-            r'get_by_role\(["\']([^"\']+)["\']',
-            r'get_by_label\(["\']([^"\']+)["\']',
-            r'get_by_text\(["\']([^"\']+)["\']',
-            r'get_by_placeholder\(["\']([^"\']+)["\']',
-        ]
+        # get_by_label
+        # Example: page.get_by_label("Email") -> label="Email"
+        label_match = re.search(r'get_by_label\(["\']([^"\']+)["\']', line)
+        if label_match:
+            return f'label="{label_match.group(1)}"'
         
-        for pattern in snake_patterns:
-            match = re.search(pattern, line)
-            if match:
-                return match.group(1)
+        # get_by_text
+        # Example: page.get_by_text("Submit") -> text="Submit"
+        text_match = re.search(r'get_by_text\(["\']([^"\']+)["\']', line)
+        if text_match:
+            return f'text="{text_match.group(1)}"'
+        
+        # get_by_role without name
+        # Example: page.get_by_role("button") -> role=button
+        role_match = re.search(r'get_by_role\(["\']([^"\']+)["\']', line)
+        if role_match:
+            return f'role={role_match.group(1)}'
+        
+        # locator with CSS/XPath selector
+        # Example: page.locator("#submit-btn") -> #submit-btn
+        locator_match = re.search(r'locator\(["\']([^"\']+)["\']', line)
+        if locator_match:
+            return locator_match.group(1)
         
         # Fallback to generic string extraction
-        return PlaywrightScriptParser._extract_string(line)
+        return PlaywrightScriptParser._extract_string(line, None)
     
     @staticmethod
     def _extract_fill_value(line: str) -> str:

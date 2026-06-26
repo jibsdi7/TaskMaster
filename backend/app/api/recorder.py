@@ -157,6 +157,62 @@ async def stop_recording(
             description=f"Recorded from {session['url']}"
         )
         
+        # Filter out nodes with no selector (invalid nodes from recording)
+        valid_nodes = []
+        for node in workflow_data["nodes"]:
+            node_type = node.get("node_type")
+            config = node.get("config", {})
+            
+            # Keep OPEN_URL nodes (they use 'url' not 'selector')
+            if node_type == models.NodeType.OPEN_URL.value:
+                valid_nodes.append(node)
+            # Keep nodes that have a valid selector
+            elif config.get("selector"):
+                valid_nodes.append(node)
+            # Skip nodes with no selector
+            else:
+                print(f"Skipping node {node.get('node_id')} - no selector")
+        
+        workflow_data["nodes"] = valid_nodes
+        
+        # Rebuild edges to only connect valid nodes
+        valid_node_ids = {node.get("node_id") for node in valid_nodes}
+        valid_edges = [
+            edge for edge in workflow_data["edges"]
+            if edge.get("source_node_id") in valid_node_ids and edge.get("target_node_id") in valid_node_ids
+        ]
+        workflow_data["edges"] = valid_edges
+        
+        # Check if there's an OPEN_URL node, if not add one at the beginning
+        has_open_url = any(node.get("node_type") == models.NodeType.OPEN_URL for node in valid_nodes)
+        
+        if not has_open_url and session.get("url"):
+            # Insert OPEN_URL node at the beginning
+            open_url_node = {
+                "node_id": "open_url_start",
+                "node_type": models.NodeType.OPEN_URL,
+                "label": "Open URL",
+                "config": {
+                    "url": session["url"],
+                    "timeout": 30000
+                },
+                "position_x": 100,
+                "position_y": 100,
+                "metadata": {"auto_generated": True, "source": "recorder"}
+            }
+            workflow_data["nodes"].insert(0, open_url_node)
+            
+            # Update edges to connect OPEN_URL to first original node
+            if len(workflow_data["nodes"]) > 1:
+                first_original_node_id = workflow_data["nodes"][1]["node_id"]
+                # Insert edge from OPEN_URL to first node
+                new_edge = {
+                    "edge_id": "edge_open_url_start",
+                    "source_node_id": "open_url_start",
+                    "target_node_id": first_original_node_id
+                }
+                workflow_data["edges"].insert(0, new_edge)
+        
         # Create workflow
         db_workflow = models.Workflow(
             name=workflow_data["name"],

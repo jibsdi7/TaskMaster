@@ -305,63 +305,96 @@ class WorkflowExecutorSync:
         self.page.wait_for_load_state("networkidle")
         return {"url": url}
     
-    def _execute_click(self, config: Dict[str, Any]) -> Any:
-        """Execute click with support for chained locators"""
-        selector = config.get("selector")
-        timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
+    def _parse_selector(self, selector: str):
+        """Parse Playwright selector format and return appropriate locator"""
+        import re
         
-        # Check if this is a chained selector (e.g., "row:Choose This Flight 4346 > button")
-        if " > " in selector:
-            # Parse chained selector
-            parts = selector.split(" > ")
+        # Handle chained selectors with >> (e.g., "role=row[name='X'] >> role=button")
+        if " >> " in selector:
+            parts = selector.split(" >> ")
             locator = None
             
             for part in parts:
-                if ":" in part:
-                    # Format: "role:name"
-                    role, name = part.split(":", 1)
-                    if locator is None:
-                        locator = self.page.get_by_role(role, name=name)
-                    else:
-                        locator = locator.get_by_role(role, name=name)
+                part_locator = self._parse_single_selector(part.strip())
+                if locator is None:
+                    locator = part_locator
                 else:
-                    # Just role without name
-                    if locator is None:
-                        locator = self.page.get_by_role(part)
-                    else:
-                        locator = locator.get_by_role(part)
+                    # Chain the locators
+                    locator = locator.locator(part_locator)
             
-            if locator:
-                locator.click(timeout=timeout)
-                return {"clicked": selector}
+            return locator
         
-        # Single selector - try different locator strategies
+        # Single selector
+        return self._parse_single_selector(selector)
+    
+    def _parse_single_selector(self, selector: str):
+        """Parse a single Playwright selector"""
+        import re
+        
+        # role=button[name="Find Flights"]
+        role_match = re.match(r'role=(\w+)\[name=["\']([^"\']+)["\']\]', selector)
+        if role_match:
+            role, name = role_match.groups()
+            return self.page.get_by_role(role, name=name)
+        
+        # role=button (without name)
+        role_simple_match = re.match(r'role=(\w+)$', selector)
+        if role_simple_match:
+            role = role_simple_match.group(1)
+            return self.page.get_by_role(role)
+        
+        # placeholder="First Last"
+        placeholder_match = re.match(r'placeholder=["\']([^"\']+)["\']', selector)
+        if placeholder_match:
+            placeholder = placeholder_match.group(1)
+            return self.page.get_by_placeholder(placeholder)
+        
+        # label="Email"
+        label_match = re.match(r'label=["\']([^"\']+)["\']', selector)
+        if label_match:
+            label = label_match.group(1)
+            return self.page.get_by_label(label)
+        
+        # text="Submit"
+        text_match = re.match(r'text=["\']([^"\']+)["\']', selector)
+        if text_match:
+            text = text_match.group(1)
+            return self.page.get_by_text(text)
+        
+        # Fallback to CSS/XPath selector
+        return self.page.locator(selector)
+    
+    def _execute_click(self, config: Dict[str, Any]) -> Any:
+        """Execute click with support for Playwright selectors"""
+        selector = config.get("selector")
+        timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
+        
+        # Skip if no selector provided
+        if not selector:
+            self._log("WARNING", "Click node has no selector, skipping")
+            return {"skipped": True, "reason": "No selector provided"}
+        
         try:
-            self.page.get_by_role("button", name=selector).click(timeout=timeout)
-        except:
-            try:
-                self.page.get_by_text(selector).click(timeout=timeout)
-            except:
-                self.page.locator(selector).click(timeout=timeout)
-        
-        return {"clicked": selector}
+            locator = self._parse_selector(selector)
+            locator.click(timeout=timeout)
+            return {"clicked": selector}
+        except Exception as e:
+            self._log("ERROR", f"Click failed: {str(e)}")
+            raise
     
     def _execute_type(self, config: Dict[str, Any]) -> Any:
-        """Execute type/fill"""
+        """Execute type/fill with Playwright selector support"""
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
         
-        # Try different locator strategies
         try:
-            self.page.get_by_role("textbox", name=selector).fill(value, timeout=timeout)
-        except:
-            try:
-                self.page.get_by_label(selector).fill(value, timeout=timeout)
-            except:
-                self.page.locator(selector).fill(value, timeout=timeout)
-        
-        return {"typed": value}
+            locator = self._parse_selector(selector)
+            locator.fill(value, timeout=timeout)
+            return {"typed": value}
+        except Exception as e:
+            self._log("ERROR", f"Type/fill failed: {str(e)}")
+            raise
     
     def _execute_select(self, config: Dict[str, Any]) -> Any:
         """Execute select option"""
