@@ -1,31 +1,132 @@
-import { Outlet } from 'react-router-dom';
-import { Box, Chip, AppBar, Toolbar, Typography } from '@mui/material';
+import { useState } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import {
+  Box,
+  Typography,
+  Tooltip,
+  Chip,
+} from '@mui/material';
+import {
+  AccountTree as WorkflowIcon,
+  PlayCircleOutline as ExecutionsIcon,
+  ViewModule as BlocksIcon,
+  Circle as DotIcon,
+} from '@mui/icons-material';
 import { useAuthStore } from '../store/authStore';
+
+const NAV_W = 56;
+
+const navItems = [
+  { label: 'Workflows', icon: WorkflowIcon, path: '/workflows' },
+  { label: 'Executions', icon: ExecutionsIcon, path: '/executions' },
+  { label: 'Blocks', icon: BlocksIcon, path: '/blocks' },
+];
 
 const Layout = () => {
   const { isDevelopmentMode, user } = useAuthStore();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#141414' }}>
+      {/* Dev mode banner */}
       {isDevelopmentMode && (
-        <AppBar position="static" color="warning" sx={{ zIndex: 1300 }}>
-          <Toolbar variant="dense" sx={{ minHeight: 40 }}>
-            <Chip
-              label="🔧 DEVELOPMENT MODE"
-              color="error"
-              size="small"
-              sx={{ mr: 2, fontWeight: 'bold' }}
-            />
-            <Typography variant="body2" sx={{ flexGrow: 1 }}>
-              User: {user?.username} | Role: {user?.role}
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.8 }}>
-              Authentication Bypass Enabled
-            </Typography>
-          </Toolbar>
-        </AppBar>
+        <Box
+          sx={{
+            height: 32,
+            backgroundColor: '#1a1200',
+            borderBottom: '1px solid #3a2800',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+            flexShrink: 0,
+          }}
+        >
+          <DotIcon sx={{ fontSize: 8, color: '#F6AD55' }} />
+          <Typography variant="caption" sx={{ color: '#F6AD55', fontWeight: 500, letterSpacing: '0.05em' }}>
+            DEVELOPMENT MODE — authentication bypass active — {user?.username}
+          </Typography>
+          <DotIcon sx={{ fontSize: 8, color: '#F6AD55' }} />
+        </Box>
       )}
-      <Outlet />
+
+      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Sidebar */}
+        <Box
+          sx={{
+            width: NAV_W,
+            backgroundColor: '#141414',
+            borderRight: '1px solid #2a2a2a',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            py: 2,
+            gap: 1,
+            flexShrink: 0,
+          }}
+        >
+          {/* Logo mark */}
+          <Box
+            onClick={() => navigate('/workflows')}
+            sx={{
+              width: 36,
+              height: 36,
+              borderRadius: '10px',
+              background: 'linear-gradient(135deg, #5B7CF6 0%, #7C5CF6 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              mb: 2,
+              cursor: 'pointer',
+              flexShrink: 0,
+              boxShadow: '0 2px 8px rgba(91,124,246,0.4)',
+            }}
+          >
+            <Typography sx={{ color: 'white', fontWeight: 800, fontSize: 14, lineHeight: 1 }}>
+              TM
+            </Typography>
+          </Box>
+
+          {/* Nav items */}
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = location.pathname.startsWith(item.path);
+            return (
+              <Tooltip key={item.path} title={item.label} placement="right">
+                <Box
+                  onClick={() => navigate(item.path)}
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '9px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    backgroundColor: active ? 'rgba(91,124,246,0.15)' : 'transparent',
+                    border: active ? '1px solid rgba(91,124,246,0.3)' : '1px solid transparent',
+                    color: active ? '#7B96F9' : '#666',
+                    '&:hover': {
+                      backgroundColor: '#242424',
+                      color: '#E0E0F0',
+                      border: '1px solid #2a2a2a',
+                    },
+                  }}
+                >
+                  <Icon sx={{ fontSize: 18 }} />
+                </Box>
+              </Tooltip>
+            );
+          })}
+        </Box>
+
+        {/* Page content */}
+        <Box sx={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+          <Outlet />
+        </Box>
+      </Box>
     </Box>
   );
 };

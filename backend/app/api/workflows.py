@@ -2,6 +2,7 @@
 Workflow API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -10,7 +11,7 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate, WorkflowResponse
 from app.core.security import get_current_user
-# Force reload to pick up schema changes
+from app.services.script_generator import ScriptGenerator
 
 router = APIRouter()
 
@@ -260,6 +261,127 @@ async def delete_workflow(
         )
 
 
+def _expand_block_nodes(
+    nodes_data: List[Dict[str, Any]],
+    edges_data: List[Dict[str, Any]],
+    db: Any,
+    depth: int = 0,
+) -> tuple:
+    """
+    Replace every BLOCK node in nodes_data/edges_data with the block's own
+    nodes and edges (inline expansion).  Runs recursively to handle nested
+    blocks (max 10 levels deep to prevent infinite loops).
+    """
+    if depth > 10:
+        return nodes_data, edges_data
+
+    expanded_nodes: List[Dict[str, Any]] = []
+    expanded_edges: List[Dict[str, Any]] = list(edges_data)
+
+    for node in nodes_data:
+        if node.get("node_type") != models.NodeType.BLOCK.value:
+            expanded_nodes.append(node)
+            continue
+
+        block_id = node.get("config", {}).get("block_id")
+        if not block_id:
+            # No block_id configured — log a warning node so execution skips it
+            expanded_nodes.append({
+                **node,
+                "node_type": models.NodeType.DELAY.value,
+                "config": {"duration": 0, "_block_error": "block_id not set"},
+            })
+            print(f"[BLOCK] BLOCK node '{node.get('node_id')}' has no block_id — skipping")
+            continue
+
+        block = db.query(models.Block).filter(models.Block.id == block_id).first()
+        if not block:
+            print(f"[BLOCK] Block {block_id} not found — skipping node '{node.get('node_id')}'")
+            expanded_nodes.append({
+                **node,
+                "node_type": models.NodeType.DELAY.value,
+                "config": {"duration": 0, "_block_error": f"block {block_id} not found"},
+            })
+            continue
+
+        version = db.query(models.BlockVersion).filter(
+            models.BlockVersion.block_id == block_id,
+            models.BlockVersion.version == block.current_version,
+        ).first()
+
+        if not version or not version.nodes:
+            print(f"[BLOCK] Block {block_id} has no nodes — skipping node '{node.get('node_id')}'")
+            expanded_nodes.append({
+                **node,
+                "node_type": models.NodeType.DELAY.value,
+                "config": {"duration": 0, "_block_error": "block has no nodes"},
+            })
+            continue
+
+        # Give each inlined node a namespaced ID to avoid collisions
+        parent_id = node.get("node_id")
+        prefix = f"{parent_id}__blk{block_id}__"
+
+        def remap(nid: str) -> str:
+            return prefix + nid
+
+        inlined_nodes = [
+            {
+                "node_id": remap(n["node_id"]),
+                "node_type": n.get("node_type", "DELAY"),
+                "label": n.get("label", ""),
+                "config": n.get("config", {}),
+                "metadata": n.get("metadata", {}),
+            }
+            for n in version.nodes
+        ]
+        inlined_edges = [
+            {
+                "edge_id": prefix + e.get("edge_id", f"e{i}"),
+                "source_node_id": remap(e.get("source_node_id", "")),
+                "target_node_id": remap(e.get("target_node_id", "")),
+            }
+            for i, e in enumerate(version.edges or [])
+        ]
+
+        # Find entry/exit nodes of the block
+        all_inlined_ids = {n["node_id"] for n in inlined_nodes}
+        inlined_target_ids = {e["target_node_id"] for e in inlined_edges}
+        inlined_source_ids = {e["source_node_id"] for e in inlined_edges}
+        block_entries = list(all_inlined_ids - inlined_target_ids)
+        block_exits = list(all_inlined_ids - inlined_source_ids)
+
+        # Rewire: edges that pointed TO the BLOCK node now point to each block entry
+        new_outer_edges = []
+        for e in expanded_edges:
+            if e["target_node_id"] == parent_id:
+                for entry in block_entries:
+                    new_outer_edges.append({
+                        "edge_id": e["edge_id"] + f"_to_{entry}",
+                        "source_node_id": e["source_node_id"],
+                        "target_node_id": entry,
+                    })
+            elif e["source_node_id"] == parent_id:
+                for exit_node in block_exits:
+                    new_outer_edges.append({
+                        "edge_id": e["edge_id"] + f"_from_{exit_node}",
+                        "source_node_id": exit_node,
+                        "target_node_id": e["target_node_id"],
+                    })
+            else:
+                new_outer_edges.append(e)
+
+        expanded_edges = new_outer_edges + inlined_edges
+        expanded_nodes.extend(inlined_nodes)
+        print(f"[BLOCK] Expanded block '{block.name}' ({len(inlined_nodes)} nodes) into node '{parent_id}'")
+
+    # Recurse in case inlined nodes themselves contain BLOCK nodes
+    if any(n.get("node_type") == models.NodeType.BLOCK.value for n in expanded_nodes):
+        return _expand_block_nodes(expanded_nodes, expanded_edges, db, depth + 1)
+
+    return expanded_nodes, expanded_edges
+
+
 @router.post("/{workflow_id}/execute")
 async def execute_workflow(
     workflow_id: int,
@@ -330,6 +452,17 @@ async def execute_workflow(
             for node in workflow.nodes
         ]
         
+        # Inline-expand any BLOCK nodes before execution
+        raw_edges = [
+            {
+                "edge_id": edge.edge_id,
+                "source_node_id": edge.source_node_id,
+                "target_node_id": edge.target_node_id
+            }
+            for edge in workflow.edges
+        ]
+        nodes_data, raw_edges = _expand_block_nodes(nodes_data, raw_edges, db)
+
         # Check if there's an OPEN_URL node
         has_open_url = any(node["node_type"] == models.NodeType.OPEN_URL.value for node in nodes_data)
         
@@ -353,25 +486,11 @@ async def execute_workflow(
                         "source_node_id": "start_url_node",
                         "target_node_id": first_original_node
                     }
-                ] + [
-                    {
-                        "edge_id": edge.edge_id,
-                        "source_node_id": edge.source_node_id,
-                        "target_node_id": edge.target_node_id
-                    }
-                    for edge in workflow.edges
-                ]
+                ] + raw_edges
             else:
                 edges_data = []
         else:
-            edges_data = [
-                {
-                    "edge_id": edge.edge_id,
-                    "source_node_id": edge.source_node_id,
-                    "target_node_id": edge.target_node_id
-                }
-                for edge in workflow.edges
-            ]
+            edges_data = raw_edges
         
         # Execute workflow with appropriate executor
         print(f"[EXECUTE] Nodes count: {len(nodes_data)}")
@@ -457,5 +576,48 @@ async def execute_workflow(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Workflow execution failed: {str(e)}"
         )
+
+@router.get("/{workflow_id}/export-script", response_class=PlainTextResponse)
+async def export_workflow_script(
+    workflow_id: int,
+    language: str = Query(default="python", pattern="^(python|javascript|typescript)$"),
+    include_comments: bool = Query(default=True),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Export a workflow as a Playwright script"""
+    workflow = db.query(models.Workflow).filter(
+        models.Workflow.id == workflow_id,
+        models.Workflow.creator_id == current_user.id,
+    ).first()
+
+    if not workflow:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    nodes_data = [
+        {
+            "node_id": node.node_id,
+            "node_type": node.node_type.value,
+            "label": node.label,
+            "config": node.config or {},
+        }
+        for node in workflow.nodes
+    ]
+    edges_data = [
+        {
+            "edge_id": edge.edge_id,
+            "source_node_id": edge.source_node_id,
+            "target_node_id": edge.target_node_id,
+        }
+        for edge in workflow.edges
+    ]
+
+    script = ScriptGenerator.generate(
+        nodes=nodes_data,
+        edges=edges_data,
+        language=language,
+        include_comments=include_comments,
+    )
+    return PlainTextResponse(content=script, media_type="text/plain")
 
 # Made with Bob

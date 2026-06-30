@@ -6,413 +6,534 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel,
+  CircularProgress,
   Switch,
   FormControlLabel,
-  Divider,
-  Chip,
   IconButton,
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  Button,
+  Tooltip,
+  Chip,
 } from '@mui/material';
 import {
   Close as CloseIcon,
   ExpandMore as ExpandMoreIcon,
-  Code as CodeIcon,
   ContentCopy as CopyIcon,
+  ChevronRight as CollapseIcon,
+  ChevronLeft as ExpandIcon,
+  Tune as TuneIcon,
 } from '@mui/icons-material';
 import { useWorkflowStore } from '../../store/workflowStore';
 import { toast } from 'react-toastify';
 
+const PANEL_W = 300;
+const TAB_W   = 32;
+
+const nodeColors: Record<string, string> = {
+  CLICK: '#48BB78',
+  TYPE: '#5B7CF6',
+  OPEN_URL: '#F6AD55',
+  DELAY: '#A78BFA',
+  LOOP: '#F56565',
+  IF_CONDITION: '#F6C05C',
+  SELECT: '#38BDF8',
+  HOVER: '#34D399',
+  VARIABLE: '#22D3EE',
+  API_REQUEST: '#F472B6',
+  BLOCK: '#94A3B8',
+  UPLOAD_FILE: '#FB923C',
+};
+
+const FieldRow = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <Box sx={{ mb: 2 }}>
+    <Typography variant="caption" sx={{ color: '#666', mb: 0.5, display: 'block', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase', fontSize: 10 }}>
+      {label}
+    </Typography>
+    {children}
+  </Box>
+);
+
+const inputSx = {
+  '& .MuiOutlinedInput-root': {
+    backgroundColor: '#1a1a1a',
+    fontSize: '0.83rem',
+    '& fieldset': { borderColor: '#2a2a2a' },
+    '&:hover fieldset': { borderColor: '#3a3a3a' },
+    '&.Mui-focused fieldset': { borderColor: '#5B7CF6', borderWidth: 1.5 },
+  },
+  '& .MuiInputBase-input': { color: '#E0E0E0', py: '7px' },
+  '& .MuiInputLabel-root': { color: '#555', fontSize: '0.83rem' },
+  '& .MuiFormHelperText-root': { color: '#555', fontSize: '0.72rem' },
+};
+
+interface BlockSummary {
+  id: number;
+  name: string;
+  description: string;
+  current_version: number;
+}
+
 const NodeInspector = () => {
   const { nodes, selectedNodeId, updateNode, setSelectedNodeId } = useWorkflowStore();
-  
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
-  
-  const [localData, setLocalData] = useState<any>({});
 
+  const [localData, setLocalData] = useState<any>({});
+  const [collapsed, setCollapsed] = useState(false);
+  const [availableBlocks, setAvailableBlocks] = useState<BlockSummary[]>([]);
+  const [blocksLoading, setBlocksLoading] = useState(false);
+
+  // Open panel whenever a node is selected
   useEffect(() => {
     if (selectedNode) {
+      setCollapsed(false);
       setLocalData({
-        label: selectedNode.data.label || '',
-        nodeType: selectedNode.data.nodeType || '',
-        selector: selectedNode.data.config?.selector || '',
-        value: selectedNode.data.config?.value || '',
-        url: selectedNode.data.config?.url || '',
-        timeout: selectedNode.data.config?.timeout || 30000,
-        retryCount: selectedNode.data.config?.retryCount || 3,
-        waitForSelector: selectedNode.data.config?.waitForSelector || true,
-        screenshot: selectedNode.data.config?.screenshot || false,
-        description: selectedNode.data.config?.description || '',
+        label:           selectedNode.data.label || '',
+        nodeType:        selectedNode.data.nodeType || '',
+        selector:        selectedNode.data.config?.selector || '',
+        value:           selectedNode.data.config?.value || '',
+        url:             selectedNode.data.config?.url || '',
+        duration:        selectedNode.data.config?.duration ?? 1000,
+        timeout:         selectedNode.data.config?.timeout || 30000,
+        retryCount:      selectedNode.data.config?.retryCount || 3,
+        waitForSelector: selectedNode.data.config?.waitForSelector ?? true,
+        screenshot:      selectedNode.data.config?.screenshot || false,
+        description:     selectedNode.data.config?.description || '',
+        block_id:        selectedNode.data.config?.block_id ?? '',
       });
     }
-  }, [selectedNode]);
+  }, [selectedNode?.id]);
 
-  if (!selectedNode) {
-    return (
-      <Box
-        sx={{
-          width: 320,
-          height: '100%',
-          backgroundColor: '#1e1e1e',
-          borderLeft: '1px solid #333',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          p: 3,
-        }}
-      >
-        <Typography variant="body2" sx={{ color: '#888', textAlign: 'center' }}>
-          Select a node to view and edit its properties
-        </Typography>
-      </Box>
-    );
-  }
+  // Fetch available blocks when a BLOCK node is selected
+  useEffect(() => {
+    if (selectedNode?.data.nodeType !== 'BLOCK') return;
+    setBlocksLoading(true);
+    const token = localStorage.getItem('token');
+    fetch('http://localhost:8000/api/blocks', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setAvailableBlocks)
+      .catch(() => setAvailableBlocks([]))
+      .finally(() => setBlocksLoading(false));
+  }, [selectedNode?.id, selectedNode?.data.nodeType]);
 
   const handleUpdate = (field: string, value: any) => {
     setLocalData((prev: any) => ({ ...prev, [field]: value }));
-    
-    // Update the node in the store
     if (field === 'label') {
       updateNode(selectedNodeId!, { label: value });
     } else if (field === 'nodeType') {
-      // Update node type
       updateNode(selectedNodeId!, { nodeType: value });
     } else {
-      // Update config fields
-      const updatedConfig = { ...selectedNode.data.config };
+      const updatedConfig = { ...selectedNode!.data.config };
       updatedConfig[field] = value;
       updateNode(selectedNodeId!, { config: updatedConfig });
     }
   };
 
-  const handleClose = () => {
-    setSelectedNodeId(null);
-  };
-
-  const generatePlaywrightCode = () => {
+  const generateCode = () => {
+    if (!selectedNode) return '';
     const { nodeType } = selectedNode.data;
-    const { selector, value, url } = localData;
-
-    let code = '';
+    const { selector, value, url, duration } = localData;
     switch (nodeType) {
-      case 'CLICK':
-        code = `await page.click('${selector}');`;
-        break;
-      case 'TYPE':
-        code = `await page.fill('${selector}', '${value}');`;
-        break;
-      case 'OPEN_URL':
-        code = `await page.goto('${url}');`;
-        break;
-      case 'SELECT':
-        code = `await page.selectOption('${selector}', '${value}');`;
-        break;
-      case 'HOVER':
-        code = `await page.hover('${selector}');`;
-        break;
-      case 'DELAY':
-        code = `await page.waitForTimeout(${localData.timeout});`;
-        break;
-      default:
-        code = `// ${nodeType} action`;
+      case 'CLICK':       return `await page.click('${selector}');`;
+      case 'TYPE':        return `await page.fill('${selector}', '${value}');`;
+      case 'OPEN_URL':    return `await page.goto('${url}');`;
+      case 'SELECT':      return `await page.selectOption('${selector}', '${value}');`;
+      case 'HOVER':       return `await page.hover('${selector}');`;
+      case 'DELAY':       return `await page.waitForTimeout(${duration});`;
+      default:            return `// ${nodeType} action`;
     }
-    return code;
   };
 
   const handleCopyCode = () => {
-    const code = generatePlaywrightCode();
-    navigator.clipboard.writeText(code);
-    toast.success('Code copied to clipboard');
+    navigator.clipboard.writeText(generateCode());
+    toast.success('Code copied');
   };
+
+  // Nothing selected — render nothing (zero width)
+  if (!selectedNodeId || !selectedNode) return null;
+
+  const color = nodeColors[selectedNode.data.nodeType] || '#A0A0B4';
+  const currentWidth = collapsed ? TAB_W : PANEL_W;
 
   return (
     <Box
       sx={{
-        width: 320,
+        width: currentWidth,
+        minWidth: currentWidth,
         height: '100%',
-        backgroundColor: '#1e1e1e',
-        borderLeft: '1px solid #333',
+        backgroundColor: '#141414',
+        borderLeft: '1px solid #2a2a2a',
         display: 'flex',
-        flexDirection: 'column',
+        flexDirection: 'row',
         overflow: 'hidden',
+        transition: 'width 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+        flexShrink: 0,
+        position: 'relative',
       }}
     >
-      {/* Header */}
-      <Box
-        sx={{
-          p: 2,
-          borderBottom: '1px solid #333',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <Typography variant="h6" sx={{ color: 'white' }}>
-          Node Inspector
-        </Typography>
-        <IconButton size="small" onClick={handleClose} sx={{ color: 'white' }}>
-          <CloseIcon />
-        </IconButton>
-      </Box>
-
-      {/* Content */}
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
-        {/* Node Type Selector */}
-        <Box sx={{ mb: 2 }}>
-          <FormControl fullWidth size="small">
-            <InputLabel sx={{ color: '#aaa' }}>Node Type</InputLabel>
-            <Select
-              value={localData.nodeType}
-              onChange={(e) => handleUpdate('nodeType', e.target.value)}
-              label="Node Type"
+      {/* Collapsed tab — shown when minimised */}
+      {collapsed && (
+        <Box
+          sx={{
+            width: TAB_W,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            pt: 1.5,
+            gap: 1,
+          }}
+        >
+          {/* Expand button */}
+          <Tooltip title="Expand inspector" placement="left">
+            <IconButton
+              size="small"
+              onClick={() => setCollapsed(false)}
               sx={{
-                backgroundColor: '#2a2a2a',
-                color: 'white',
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#666' },
-                '& .MuiSvgIcon-root': { color: 'white' },
+                color: '#666',
+                width: 24, height: 24,
+                '&:hover': { color: '#E0E0F0', backgroundColor: '#242424' },
               }}
             >
-              <MenuItem value="CLICK">Click</MenuItem>
-              <MenuItem value="TYPE">Type</MenuItem>
-              <MenuItem value="SELECT">Select</MenuItem>
-              <MenuItem value="HOVER">Hover</MenuItem>
-              <MenuItem value="UPLOAD_FILE">Upload File</MenuItem>
-              <MenuItem value="OPEN_URL">Open URL</MenuItem>
-              <MenuItem value="DELAY">Delay</MenuItem>
-            </Select>
-          </FormControl>
+              <ExpandIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+
+          {/* Rotated node type label */}
+          <Box
+            sx={{
+              mt: 1,
+              writingMode: 'vertical-rl',
+              textOrientation: 'mixed',
+              transform: 'rotate(180deg)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+            }}
+          >
+            <Box
+              sx={{
+                width: 5, height: 5, borderRadius: '50%',
+                backgroundColor: color, flexShrink: 0,
+              }}
+            />
+            <Typography
+              variant="caption"
+              sx={{ color: '#555', fontWeight: 500, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase' }}
+            >
+              {selectedNode.data.nodeType}
+            </Typography>
+          </Box>
         </Box>
+      )}
 
-        {/* Basic Properties */}
-        <Accordion defaultExpanded sx={{ backgroundColor: '#252525', color: 'white', mb: 1 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}>
-            <Typography variant="subtitle2">Basic Properties</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <TextField
-                fullWidth
-                label="Node Name"
-                value={localData.label}
-                onChange={(e) => handleUpdate('label', e.target.value)}
+      {/* Full panel — shown when expanded */}
+      {!collapsed && (
+        <Box
+          sx={{
+            width: PANEL_W,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Header */}
+          <Box
+            sx={{
+              px: 2, py: 1.5,
+              borderBottom: '1px solid #242424',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              flexShrink: 0,
+            }}
+          >
+            {/* Node type colour badge */}
+            <Box
+              sx={{
+                width: 8, height: 8, borderRadius: '50%',
+                backgroundColor: color, flexShrink: 0,
+              }}
+            />
+            <Typography variant="body2" sx={{ color: '#E0E0F0', fontWeight: 600, flex: 1, fontSize: '0.83rem' }}>
+              {selectedNode.data.label || selectedNode.data.nodeType}
+            </Typography>
+
+            {/* Minimise */}
+            <Tooltip title="Minimise panel">
+              <IconButton
                 size="small"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#2a2a2a',
-                    color: 'white',
-                  },
-                  '& .MuiInputLabel-root': { color: '#aaa' },
-                }}
-              />
-
-              <TextField
-                fullWidth
-                label="Description"
-                value={localData.description}
-                onChange={(e) => handleUpdate('description', e.target.value)}
-                multiline
-                rows={2}
-                size="small"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#2a2a2a',
-                    color: 'white',
-                  },
-                  '& .MuiInputLabel-root': { color: '#aaa' },
-                }}
-              />
-            </Box>
-          </AccordionDetails>
-        </Accordion>
-
-        {/* Action Configuration */}
-        <Accordion defaultExpanded sx={{ backgroundColor: '#252525', color: 'white', mb: 1 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}>
-            <Typography variant="subtitle2">Action Configuration</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {/* Selector (for browser actions) */}
-              {['CLICK', 'TYPE', 'SELECT', 'HOVER', 'UPLOAD_FILE'].includes(
-                selectedNode.data.nodeType
-              ) && (
-                <TextField
-                  fullWidth
-                  label="CSS Selector"
-                  value={localData.selector}
-                  onChange={(e) => handleUpdate('selector', e.target.value)}
-                  placeholder="#button, .class, [data-test='id']"
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      backgroundColor: '#2a2a2a',
-                      color: 'white',
-                    },
-                    '& .MuiInputLabel-root': { color: '#aaa' },
-                  }}
-                />
-              )}
-
-              {/* Value (for TYPE, SELECT) */}
-              {['TYPE', 'SELECT'].includes(selectedNode.data.nodeType) && (
-                <TextField
-                  fullWidth
-                  label="Value"
-                  value={localData.value}
-                  onChange={(e) => handleUpdate('value', e.target.value)}
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      backgroundColor: '#2a2a2a',
-                      color: 'white',
-                    },
-                    '& .MuiInputLabel-root': { color: '#aaa' },
-                  }}
-                />
-              )}
-
-              {/* URL (for OPEN_URL) */}
-              {selectedNode.data.nodeType === 'OPEN_URL' && (
-                <TextField
-                  fullWidth
-                  label="URL"
-                  value={localData.url}
-                  onChange={(e) => handleUpdate('url', e.target.value)}
-                  placeholder="https://example.com"
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      backgroundColor: '#2a2a2a',
-                      color: 'white',
-                    },
-                    '& .MuiInputLabel-root': { color: '#aaa' },
-                  }}
-                />
-              )}
-
-              {/* Timeout */}
-              <TextField
-                fullWidth
-                label="Timeout (ms)"
-                type="number"
-                value={localData.timeout}
-                onChange={(e) => handleUpdate('timeout', parseInt(e.target.value))}
-                size="small"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#2a2a2a',
-                    color: 'white',
-                  },
-                  '& .MuiInputLabel-root': { color: '#aaa' },
-                }}
-              />
-
-              {/* Retry Count */}
-              <TextField
-                fullWidth
-                label="Retry Count"
-                type="number"
-                value={localData.retryCount}
-                onChange={(e) => handleUpdate('retryCount', parseInt(e.target.value))}
-                size="small"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#2a2a2a',
-                    color: 'white',
-                  },
-                  '& .MuiInputLabel-root': { color: '#aaa' },
-                }}
-              />
-            </Box>
-          </AccordionDetails>
-        </Accordion>
-
-        {/* Advanced Options */}
-        <Accordion sx={{ backgroundColor: '#252525', color: 'white', mb: 1 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}>
-            <Typography variant="subtitle2">Advanced Options</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={localData.waitForSelector}
-                    onChange={(e) => handleUpdate('waitForSelector', e.target.checked)}
-                    sx={{ color: 'white' }}
-                  />
-                }
-                label="Wait for Selector"
-                sx={{ color: 'white' }}
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={localData.screenshot}
-                    onChange={(e) => handleUpdate('screenshot', e.target.checked)}
-                    sx={{ color: 'white' }}
-                  />
-                }
-                label="Capture Screenshot"
-                sx={{ color: 'white' }}
-              />
-            </Box>
-          </AccordionDetails>
-        </Accordion>
-
-        {/* Playwright Code */}
-        <Accordion sx={{ backgroundColor: '#252525', color: 'white' }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}>
-            <Typography variant="subtitle2">Playwright Code</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Box>
-              <Box
-                sx={{
-                  backgroundColor: '#1a1a1a',
-                  p: 2,
-                  borderRadius: 1,
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  color: '#4CAF50',
-                  mb: 1,
-                  position: 'relative',
-                }}
+                onClick={() => setCollapsed(true)}
+                sx={{ color: '#555', width: 24, height: 24, '&:hover': { color: '#E0E0F0', backgroundColor: '#242424' } }}
               >
-                <IconButton
-                  size="small"
-                  onClick={handleCopyCode}
+                <CollapseIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+
+            {/* Close / deselect */}
+            <Tooltip title="Close">
+              <IconButton
+                size="small"
+                onClick={() => setSelectedNodeId(null)}
+                sx={{ color: '#555', width: 24, height: 24, '&:hover': { color: '#F56565', backgroundColor: 'rgba(245,101,101,0.08)' } }}
+              >
+                <CloseIcon sx={{ fontSize: 15 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+
+          {/* Scrollable content */}
+          <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+
+            {/* Node type selector */}
+            <FieldRow label="Node Type">
+              <FormControl fullWidth size="small">
+                <Select
+                  value={localData.nodeType}
+                  onChange={(e) => handleUpdate('nodeType', e.target.value)}
                   sx={{
-                    position: 'absolute',
-                    top: 4,
-                    right: 4,
-                    color: 'white',
+                    backgroundColor: '#1a1a1a',
+                    fontSize: '0.83rem',
+                    color: '#E0E0E0',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2a2a2a' },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#3a3a3a' },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#5B7CF6', borderWidth: 1.5 },
+                    '& .MuiSvgIcon-root': { color: '#666' },
                   }}
                 >
-                  <CopyIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {generatePlaywrightCode()}
-                </pre>
+                  {['CLICK','TYPE','SELECT','HOVER','UPLOAD_FILE','OPEN_URL','DELAY','BLOCK'].map((t) => (
+                    <MenuItem key={t} value={t} sx={{ fontSize: '0.83rem' }}>{t}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </FieldRow>
+
+            {/* Label */}
+            <FieldRow label="Label">
+              <TextField fullWidth size="small" value={localData.label} onChange={(e) => handleUpdate('label', e.target.value)} sx={inputSx} />
+            </FieldRow>
+
+            {/* ── BLOCK node: block picker ── */}
+            {selectedNode.data.nodeType === 'BLOCK' && (
+              <>
+                <FieldRow label="Select Block">
+                  {blocksLoading ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CircularProgress size={14} sx={{ color: '#5B7CF6' }} />
+                      <Typography variant="caption" sx={{ color: '#666' }}>Loading blocks…</Typography>
+                    </Box>
+                  ) : availableBlocks.length === 0 ? (
+                    <Typography variant="caption" sx={{ color: '#F56565' }}>
+                      No blocks available. Save a workflow as a block first.
+                    </Typography>
+                  ) : (
+                    <FormControl fullWidth size="small">
+                      <Select
+                        value={localData.block_id || ''}
+                        onChange={(e) => handleUpdate('block_id', e.target.value ? Number(e.target.value) : '')}
+                        displayEmpty
+                        sx={{
+                          backgroundColor: '#1a1a1a',
+                          fontSize: '0.83rem',
+                          color: localData.block_id ? '#E0E0E0' : '#555',
+                          '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2a2a2a' },
+                          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#3a3a3a' },
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#5B7CF6', borderWidth: 1.5 },
+                          '& .MuiSvgIcon-root': { color: '#666' },
+                        }}
+                      >
+                        <MenuItem value="" sx={{ fontSize: '0.83rem', color: '#555' }}>
+                          — choose a block —
+                        </MenuItem>
+                        {availableBlocks.map((b) => (
+                          <MenuItem key={b.id} value={b.id} sx={{ fontSize: '0.83rem' }}>
+                            {b.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+                </FieldRow>
+
+                {/* Show selected block details */}
+                {localData.block_id && (() => {
+                  const blk = availableBlocks.find((b) => b.id === Number(localData.block_id));
+                  return blk ? (
+                    <Box
+                      sx={{
+                        mb: 2, p: 1.5, borderRadius: '7px',
+                        backgroundColor: 'rgba(91,124,246,0.08)',
+                        border: '1px solid rgba(91,124,246,0.2)',
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#7B96F9', fontWeight: 600, flex: 1 }}>
+                          {blk.name}
+                        </Typography>
+                        <Chip
+                          label={`v${blk.current_version}`}
+                          size="small"
+                          sx={{ height: 16, fontSize: 10, backgroundColor: 'rgba(91,124,246,0.2)', color: '#7B96F9' }}
+                        />
+                      </Box>
+                      {blk.description && (
+                        <Typography variant="caption" sx={{ color: '#666' }}>
+                          {blk.description}
+                        </Typography>
+                      )}
+                    </Box>
+                  ) : null;
+                })()}
+              </>
+            )}
+
+            {/* ── Regular node fields ── */}
+            {/* Selector */}
+            {['CLICK','TYPE','SELECT','HOVER','UPLOAD_FILE'].includes(selectedNode.data.nodeType) && (
+              <FieldRow label="CSS Selector">
+                <TextField
+                  fullWidth size="small"
+                  value={localData.selector}
+                  onChange={(e) => handleUpdate('selector', e.target.value)}
+                  placeholder="#btn, .class, role=button"
+                  sx={inputSx}
+                />
+              </FieldRow>
+            )}
+
+            {/* Value */}
+            {['TYPE','SELECT'].includes(selectedNode.data.nodeType) && (
+              <FieldRow label="Value">
+                <TextField fullWidth size="small" value={localData.value} onChange={(e) => handleUpdate('value', e.target.value)} sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* URL */}
+            {selectedNode.data.nodeType === 'OPEN_URL' && (
+              <FieldRow label="URL">
+                <TextField fullWidth size="small" value={localData.url} onChange={(e) => handleUpdate('url', e.target.value)} placeholder="https://example.com" sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* Duration (DELAY) */}
+            {selectedNode.data.nodeType === 'DELAY' && (
+              <FieldRow label="Duration (ms)">
+                <TextField
+                  fullWidth size="small" type="number"
+                  value={localData.duration}
+                  onChange={(e) => handleUpdate('duration', parseInt(e.target.value) || 0)}
+                  inputProps={{ min: 0, step: 500 }}
+                  helperText="1000 ms = 1 second"
+                  sx={inputSx}
+                />
+              </FieldRow>
+            )}
+
+            {/* Timeout — not shown for BLOCK or DELAY nodes */}
+            {!['DELAY', 'BLOCK'].includes(selectedNode.data.nodeType) && (
+              <FieldRow label="Timeout (ms)">
+                <TextField fullWidth size="small" type="number" value={localData.timeout} onChange={(e) => handleUpdate('timeout', parseInt(e.target.value))} sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* Description */}
+            <FieldRow label="Description">
+              <TextField fullWidth size="small" multiline rows={2} value={localData.description} onChange={(e) => handleUpdate('description', e.target.value)} sx={inputSx} />
+            </FieldRow>
+
+            {/* Advanced */}
+            <Accordion
+              disableGutters
+              sx={{
+                backgroundColor: 'transparent', boxShadow: 'none', mb: 1.5,
+                '&:before': { display: 'none' },
+                border: '1px solid #242424', borderRadius: '7px !important',
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ fontSize: 16, color: '#555' }} />}
+                sx={{ minHeight: 36, px: 1.5, '& .MuiAccordionSummary-content': { my: 0 } }}
+              >
+                <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: 10 }}>
+                  Advanced
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails sx={{ px: 1.5, pb: 1.5 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      size="small"
+                      checked={localData.waitForSelector}
+                      onChange={(e) => handleUpdate('waitForSelector', e.target.checked)}
+                      sx={{ '& .MuiSwitch-thumb': { backgroundColor: '#5B7CF6' }, '& .Mui-checked + .MuiSwitch-track': { backgroundColor: '#5B7CF6' } }}
+                    />
+                  }
+                  label={<Typography variant="caption" sx={{ color: '#888' }}>Wait for selector</Typography>}
+                  sx={{ mb: 0.5 }}
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      size="small"
+                      checked={localData.screenshot}
+                      onChange={(e) => handleUpdate('screenshot', e.target.checked)}
+                      sx={{ '& .MuiSwitch-thumb': { backgroundColor: '#5B7CF6' }, '& .Mui-checked + .MuiSwitch-track': { backgroundColor: '#5B7CF6' } }}
+                    />
+                  }
+                  label={<Typography variant="caption" sx={{ color: '#888' }}>Capture screenshot</Typography>}
+                />
+              </AccordionDetails>
+            </Accordion>
+
+            {/* Inline code snippet */}
+            <Box
+              sx={{
+                backgroundColor: '#0d0d0d',
+                border: '1px solid #242424',
+                borderRadius: '7px',
+                p: 1.5,
+                position: 'relative',
+                mb: 2,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="caption" sx={{ color: '#555', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: 10 }}>
+                  Code
+                </Typography>
+                <Tooltip title="Copy">
+                  <IconButton size="small" onClick={handleCopyCode} sx={{ color: '#555', width: 20, height: 20, '&:hover': { color: '#E0E0F0' } }}>
+                    <CopyIcon sx={{ fontSize: 13 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+              <Box
+                component="pre"
+                sx={{
+                  margin: 0, fontSize: 11.5, lineHeight: 1.6,
+                  color: '#7B96F9',
+                  fontFamily: '"Fira Code", "Consolas", monospace',
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                  overflowX: 'hidden',
+                }}
+              >
+                {generateCode()}
               </Box>
             </Box>
-          </AccordionDetails>
-        </Accordion>
 
-        {/* Metadata */}
-        <Box sx={{ mt: 2, p: 2, backgroundColor: '#252525', borderRadius: 1 }}>
-          <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 0.5 }}>
-            Node ID: {selectedNode.id}
-          </Typography>
-          <Typography variant="caption" sx={{ color: '#888', display: 'block' }}>
-            Position: ({Math.round(selectedNode.position.x)}, {Math.round(selectedNode.position.y)})
-          </Typography>
+            {/* Meta */}
+            <Box sx={{ borderTop: '1px solid #1e1e1e', pt: 1.5 }}>
+              <Typography variant="caption" sx={{ color: '#383838', display: 'block', fontFamily: 'monospace', fontSize: 10 }}>
+                id: {selectedNode.id}
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#383838', display: 'block', fontFamily: 'monospace', fontSize: 10 }}>
+                x: {Math.round(selectedNode.position.x)}, y: {Math.round(selectedNode.position.y)}
+              </Typography>
+            </Box>
+          </Box>
         </Box>
-      </Box>
+      )}
     </Box>
   );
 };

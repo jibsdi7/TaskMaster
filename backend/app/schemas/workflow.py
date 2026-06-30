@@ -16,6 +16,8 @@ class WorkflowNodeCreate(BaseModel):
     position_y: float
     config: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    # For BLOCK nodes — references a saved Block record
+    block_id: Optional[int] = None
 
 
 class WorkflowNodeResponse(WorkflowNodeCreate):
@@ -167,8 +169,6 @@ class WorkflowRunResponse(BaseModel):
     duration_seconds: Optional[float] = None
     result: Dict[str, Any] = Field(default_factory=dict)
     error_message: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime
     logs: List[WorkflowLogResponse] = Field(default_factory=list)
 
     class Config:

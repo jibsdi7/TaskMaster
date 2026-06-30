@@ -2,7 +2,46 @@
 Playwright Script Generator
 """
 from typing import Dict, List, Any
+from collections import deque
 from app.db.models import NodeType
+
+
+def topological_sort(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return nodes sorted in execution order (topological sort via Kahn's algorithm).
+    Nodes with no incoming edges come first, preserving the flow graph order.
+    Any nodes not reachable through the graph are appended at the end."""
+    node_map = {n["node_id"]: n for n in nodes}
+    
+    # Build in-degree count and adjacency list
+    in_degree = {nid: 0 for nid in node_map}
+    adjacency: Dict[str, List[str]] = {nid: [] for nid in node_map}
+    
+    for edge in edges:
+        src = edge.get("source_node_id")
+        tgt = edge.get("target_node_id")
+        if src in node_map and tgt in node_map:
+            adjacency[src].append(tgt)
+            in_degree[tgt] += 1
+    
+    # Start with all nodes that have no incoming edges
+    queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
+    sorted_ids: List[str] = []
+    
+    while queue:
+        nid = queue.popleft()
+        sorted_ids.append(nid)
+        for neighbour in adjacency[nid]:
+            in_degree[neighbour] -= 1
+            if in_degree[neighbour] == 0:
+                queue.append(neighbour)
+    
+    # Append any nodes not reached (disconnected nodes) preserving original order
+    reached = set(sorted_ids)
+    for n in nodes:
+        if n["node_id"] not in reached:
+            sorted_ids.append(n["node_id"])
+    
+    return [node_map[nid] for nid in sorted_ids if nid in node_map]
 
 
 class ScriptGenerator:
@@ -16,12 +55,14 @@ class ScriptGenerator:
         include_comments: bool = True
     ) -> str:
         """Generate Playwright script from workflow"""
+        # Sort nodes in graph execution order before generating code
+        ordered_nodes = topological_sort(nodes, edges)
         if language == "python":
-            return ScriptGenerator._generate_python(nodes, edges, include_comments)
+            return ScriptGenerator._generate_python(ordered_nodes, edges, include_comments)
         elif language == "javascript":
-            return ScriptGenerator._generate_javascript(nodes, edges, include_comments)
+            return ScriptGenerator._generate_javascript(ordered_nodes, edges, include_comments)
         elif language == "typescript":
-            return ScriptGenerator._generate_typescript(nodes, edges, include_comments)
+            return ScriptGenerator._generate_typescript(ordered_nodes, edges, include_comments)
         else:
             raise ValueError(f"Unsupported language: {language}")
     

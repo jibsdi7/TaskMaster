@@ -7,6 +7,7 @@ import WorkflowList from './pages/WorkflowList';
 import ExecutionList from './pages/ExecutionList';
 import ExecutionDetails from './pages/ExecutionDetails';
 import BlockList from './pages/BlockList';
+import BlockEditor from './pages/BlockEditor';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import { useAuthStore } from './store/authStore';
@@ -34,6 +35,8 @@ function App() {
             <Route path="executions" element={<ExecutionList />} />
             <Route path="executions/:id" element={<ExecutionDetails />} />
             <Route path="blocks" element={<BlockList />} />
+            <Route path="blocks/new" element={<BlockEditor />} />
+            <Route path="blocks/:id/edit" element={<BlockEditor />} />
           </Route>
         ) : (
           <Route path="*" element={<Navigate to="/login" replace />} />

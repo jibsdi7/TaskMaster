@@ -6,8 +6,21 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Button
+  Button,
+  Tab,
+  Tabs,
+  IconButton,
+  Tooltip,
+  Typography,
+  CircularProgress,
+  List,
+  ListItemButton,
+  ListItemText,
+  Chip,
 } from '@mui/material';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DownloadIcon from '@mui/icons-material/Download';
+import CheckIcon from '@mui/icons-material/Check';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useReactFlow } from 'reactflow';
 import WorkflowToolbar from '../components/workflow/WorkflowToolbar';
@@ -55,6 +68,19 @@ const WorkflowEditor = () => {
   const [saveBlockDialogOpen, setSaveBlockDialogOpen] = useState(false);
   const [blockName, setBlockName] = useState('');
   const [blockDescription, setBlockDescription] = useState('');
+
+  // State for Import Block dialog
+  const [importBlockOpen, setImportBlockOpen] = useState(false);
+  const [importBlocks, setImportBlocks] = useState<{ id: number; name: string; description: string; current_version: number }[]>([]);
+  const [importBlocksLoading, setImportBlocksLoading] = useState(false);
+  const [importingBlockId, setImportingBlockId] = useState<number | null>(null);
+
+  // State for code viewer dialog
+  const [codeDialogOpen, setCodeDialogOpen] = useState(false);
+  const [codeLanguage, setCodeLanguage] = useState<'python' | 'javascript' | 'typescript'>('python');
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [codeLoading, setCodeLoading] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   // Load workflow if ID is provided
   useEffect(() => {
@@ -152,12 +178,21 @@ const WorkflowEditor = () => {
   const handleSave = async () => {
     try {
       const token = localStorage.getItem('token');
-      
+
+      // Resolve project_id — only needed for new workflows
+      let resolvedProjectId: number | undefined;
+      if (!workflowId) {
+        // GET /api/projects/default auto-creates "Default Project" if it doesn't exist
+        const projRes = await axios.get('http://localhost:8000/api/projects/default', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        resolvedProjectId = projRes.data.id;
+      }
+
       // Transform React Flow data to backend format
-      const workflowData = {
+      const workflowData: any = {
         name: workflowName,
         description: 'Workflow created with TaskMaster',
-        project_id: 1, // TODO: Get from context or selection
         nodes: nodes.map((node) => ({
           node_id: node.id,
           node_type: node.data.nodeType,
@@ -180,17 +215,22 @@ const WorkflowEditor = () => {
 
       let response;
       if (workflowId) {
-        // Update existing workflow
+        // Update existing workflow — no project_id needed
         response = await axios.put(
           `http://localhost:8000/api/workflows/${workflowId}`,
           workflowData,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         toast.success('Workflow updated successfully');
+        // Re-fetch code if the dialog is currently open so it shows updated nodes
+        if (codeDialogOpen) {
+          await fetchCode(codeLanguage);
+        }
       } else {
         // Create new workflow
+        workflowData.project_id = resolvedProjectId;
         response = await axios.post(
-          'http://localhost:8000/api/workflows',
+          'http://localhost:8000/api/workflows/',
           workflowData,
           { headers: { Authorization: `Bearer ${token}` } }
         );
@@ -320,7 +360,7 @@ const WorkflowEditor = () => {
         params = {
           save_as_workflow: true,
           workflow_name: workflowNameInput.trim(),
-          project_id: 1 // TODO: Get from context or selection
+          // omit project_id → backend auto-creates "Default Project"
         };
       }
       
@@ -399,6 +439,61 @@ const WorkflowEditor = () => {
       toast.error(error.response?.data?.detail || 'Failed to run workflow');
       setStatus('idle');
     }
+  };
+
+  const fetchCode = async (lang: 'python' | 'javascript' | 'typescript') => {
+    if (!workflowId) {
+      toast.error('Save the workflow first before viewing code');
+      return;
+    }
+    try {
+      setCodeLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `http://localhost:8000/api/workflows/${workflowId}/export-script`,
+        {
+          params: { language: lang, include_comments: true },
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'text',
+        }
+      );
+      setGeneratedCode(response.data);
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to generate code');
+      setGeneratedCode('');
+    } finally {
+      setCodeLoading(false);
+    }
+  };
+
+  const handleViewCode = async () => {
+    setCodeDialogOpen(true);
+    setCodeCopied(false);
+    await fetchCode(codeLanguage);
+  };
+
+  const handleCodeLanguageChange = async (_: any, newLang: 'python' | 'javascript' | 'typescript') => {
+    setCodeLanguage(newLang);
+    setCodeCopied(false);
+    await fetchCode(newLang);
+  };
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(generatedCode).then(() => {
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    });
+  };
+
+  const handleDownloadCode = () => {
+    const ext = codeLanguage === 'python' ? 'py' : codeLanguage === 'javascript' ? 'js' : 'ts';
+    const blob = new Blob([generatedCode], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${workflowName.replace(/\s+/g, '_')}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleZoomIn = () => {
@@ -484,10 +579,85 @@ const WorkflowEditor = () => {
     setBlockDescription('');
   };
 
+  // ── Import Block ────────────────────────────────────────────────────────
+  const handleImportBlock = async () => {
+    setImportBlockOpen(true);
+    setImportBlocksLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:8000/api/blocks', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) setImportBlocks(await res.json());
+    } catch {
+      setImportBlocks([]);
+    } finally {
+      setImportBlocksLoading(false);
+    }
+  };
+
+  const handleImportBlockConfirm = async (blockId: number) => {
+    setImportingBlockId(blockId);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:8000/api/blocks/${blockId}/definition`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Failed to load block definition');
+      const def = await res.json();
+
+      // Calculate offset so pasted nodes don't overlap existing ones
+      const existingCount = nodes.length;
+      const offsetX = 80 + (existingCount % 4) * 280;
+      const offsetY = 80 + Math.floor(existingCount / 4) * 160;
+
+      // Build unique ID prefix to avoid collisions with existing nodes
+      const prefix = `imp_${blockId}_${Date.now()}_`;
+
+      const newNodes = (def.nodes || []).map((n: any) => ({
+        id: prefix + n.node_id,
+        type: 'custom',
+        position: {
+          x: (n.position_x ?? 0) + offsetX,
+          y: (n.position_y ?? 0) + offsetY,
+        },
+        data: {
+          label: n.label,
+          nodeType: n.node_type,
+          config: n.config || {},
+          status: 'idle' as const,
+        },
+      }));
+
+      const newEdges = (def.edges || []).map((e: any) => ({
+        id: prefix + e.edge_id,
+        source: prefix + e.source_node_id,
+        target: prefix + e.target_node_id,
+        type: 'smoothstep',
+        animated: true,
+        style: { stroke: '#1976d2', strokeWidth: 2 },
+      }));
+
+      // Merge into the current canvas
+      useWorkflowStore.setState(state => ({
+        nodes: [...state.nodes, ...newNodes],
+        edges: [...state.edges, ...newEdges],
+      }));
+
+      toast.success(`Imported "${def.block_name}" — ${newNodes.length} nodes added`);
+      setImportBlockOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to import block');
+    } finally {
+      setImportingBlockId(null);
+    }
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#1a1a1a' }}>
       <WorkflowToolbar
         workflowName={workflowName}
+        onRenameWorkflow={setWorkflowName}
         status={status}
         isRecording={isRecording}
         canUndo={canUndo()}
@@ -507,6 +677,8 @@ const WorkflowEditor = () => {
         onFitView={handleFitView}
         onAutoLayout={autoLayout}
         onSaveAsBlock={handleSaveAsBlock}
+        onImportBlock={handleImportBlock}
+        onViewCode={handleViewCode}
       />
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <NodePalette />
@@ -541,6 +713,145 @@ const WorkflowEditor = () => {
           <Button onClick={handleNameDialogConfirm} variant="contained" color="primary">
             Create
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Code Viewer Dialog */}
+      <Dialog
+        open={codeDialogOpen}
+        onClose={() => setCodeDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { backgroundColor: '#1e1e1e', color: 'white', minHeight: 500 } }}
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 0 }}>
+          <Typography variant="h6">Playwright Code</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Tooltip title={codeCopied ? 'Copied!' : 'Copy to clipboard'}>
+              <IconButton onClick={handleCopyCode} disabled={!generatedCode} sx={{ color: codeCopied ? '#4CAF50' : 'white' }}>
+                {codeCopied ? <CheckIcon /> : <ContentCopyIcon />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Download file">
+              <IconButton onClick={handleDownloadCode} disabled={!generatedCode} sx={{ color: 'white' }}>
+                <DownloadIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </DialogTitle>
+
+        {/* Language tabs */}
+        <Tabs
+          value={codeLanguage}
+          onChange={handleCodeLanguageChange}
+          sx={{
+            px: 3,
+            '& .MuiTab-root': { color: '#aaa', textTransform: 'none' },
+            '& .Mui-selected': { color: 'white' },
+            '& .MuiTabs-indicator': { backgroundColor: '#1976d2' },
+          }}
+        >
+          <Tab label="Python" value="python" />
+          <Tab label="JavaScript" value="javascript" />
+          <Tab label="TypeScript" value="typescript" />
+        </Tabs>
+
+        <DialogContent sx={{ p: 0 }}>
+          {codeLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <Box
+              component="pre"
+              sx={{
+                m: 0,
+                p: 3,
+                backgroundColor: '#0d0d0d',
+                color: '#f8f8f2',
+                fontFamily: '"Fira Code", "Consolas", monospace',
+                fontSize: 13,
+                lineHeight: 1.6,
+                overflowX: 'auto',
+                overflowY: 'auto',
+                maxHeight: 500,
+                whiteSpace: 'pre',
+                borderTop: '1px solid #333',
+              }}
+            >
+              {generatedCode || '# No code generated yet'}
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ borderTop: '1px solid #333', px: 3 }}>
+          <Button onClick={() => setCodeDialogOpen(false)} sx={{ color: '#aaa' }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Import Block Dialog */}
+      <Dialog
+        open={importBlockOpen}
+        onClose={() => setImportBlockOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { backgroundColor: '#1c1c1c', border: '1px solid #2a2a2a' } }}
+      >
+        <DialogTitle sx={{ color: '#FFFFFF', borderBottom: '1px solid #2a2a2a', pb: 1.5 }}>
+          Import Block into Canvas
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {importBlocksLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={24} sx={{ color: '#5B7CF6' }} />
+            </Box>
+          ) : importBlocks.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <Typography variant="body2" sx={{ color: '#666' }}>
+                No blocks available. Create one in the Blocks section first.
+              </Typography>
+            </Box>
+          ) : (
+            <List disablePadding>
+              {importBlocks.map((b, i) => (
+                <ListItemButton
+                  key={b.id}
+                  onClick={() => handleImportBlockConfirm(b.id)}
+                  disabled={importingBlockId === b.id}
+                  sx={{
+                    borderBottom: i < importBlocks.length - 1 ? '1px solid #222' : 'none',
+                    py: 1.25, px: 2,
+                    '&:hover': { backgroundColor: '#242424' },
+                  }}
+                >
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" sx={{ color: '#FFFFFF', fontWeight: 500 }}>
+                          {b.name}
+                        </Typography>
+                        <Chip label={`v${b.current_version}`} size="small"
+                          sx={{ height: 16, fontSize: 10, backgroundColor: 'rgba(91,124,246,0.2)', color: '#7B96F9' }} />
+                      </Box>
+                    }
+                    secondary={
+                      <Typography variant="caption" sx={{ color: '#666' }}>
+                        {b.description || 'No description'}
+                      </Typography>
+                    }
+                  />
+                  {importingBlockId === b.id && (
+                    <CircularProgress size={16} sx={{ color: '#5B7CF6', ml: 1 }} />
+                  )}
+                </ListItemButton>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid #2a2a2a', px: 2, py: 1.5 }}>
+          <Button onClick={() => setImportBlockOpen(false)} sx={{ color: '#666' }}>Cancel</Button>
         </DialogActions>
       </Dialog>
 

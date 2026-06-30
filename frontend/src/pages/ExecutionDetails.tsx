@@ -34,8 +34,14 @@ interface ExecutionRun {
   result: any;
 }
 
+// Timestamps from the backend are UTC but lack a timezone suffix — normalise
+// them so the browser parses as UTC, not local time.
+function toUTC(iso: string): string {
+  return /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
+}
+
 const ExecutionDetails = () => {
-  const { runId } = useParams<{ runId: string }>();
+  const { id: runId } = useParams<{ id: string }>();
   const [execution, setExecution] = useState<ExecutionRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -177,7 +183,7 @@ const ExecutionDetails = () => {
               Started At
             </Typography>
             <Typography variant="body1">
-              {new Date(execution.started_at).toLocaleString()}
+              {new Date(toUTC(execution.started_at)).toLocaleString()}
             </Typography>
           </Box>
           <Box>
@@ -186,7 +192,7 @@ const ExecutionDetails = () => {
             </Typography>
             <Typography variant="body1">
               {execution.completed_at
-                ? new Date(execution.completed_at).toLocaleString()
+                ? new Date(toUTC(execution.completed_at)).toLocaleString()
                 : 'In Progress'}
             </Typography>
           </Box>

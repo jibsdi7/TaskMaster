@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     ]
     
     # Database
-    DATABASE_URL: str = "postgresql://taskmaster:taskmaster@localhost:5432/taskmaster"
+    DATABASE_URL: str = "sqlite:///./taskmaster.db"
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

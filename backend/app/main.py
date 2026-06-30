@@ -32,9 +32,31 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[WARNING] Could not connect to database: {e}")
         print("[INFO] Server will start but database operations will fail")
-    
-    # Development Mode Warning
+
+    # Development Mode: seed a real dev user row so FK constraints work
     if settings.DEV_AUTH_BYPASS:
+        try:
+            from app.db.database import SessionLocal
+            from app.core.security import get_password_hash
+            db = SessionLocal()
+            dev_user = db.query(models.User).filter(models.User.id == 1).first()
+            if not dev_user:
+                dev_user = models.User(
+                    id=1,
+                    email="developer@taskmaster.local",
+                    username="developer",
+                    full_name="Development User",
+                    hashed_password=get_password_hash("dev-password"),
+                    role=models.UserRole.ADMIN,
+                    is_active=True,
+                )
+                db.add(dev_user)
+                db.commit()
+                print("[OK] Dev user seeded (id=1)")
+            db.close()
+        except Exception as e:
+            print(f"[WARNING] Could not seed dev user: {e}")
+
         print("\n" + "="*60)
         print("WARNING: DEVELOPMENT AUTHENTICATION ENABLED")
         print("="*60)
@@ -42,7 +64,7 @@ async def lifespan(app: FastAPI):
         print("Development user: developer@taskmaster.local")
         print("This mode should NEVER be used in production!")
         print("="*60 + "\n")
-    
+
     yield
     # Shutdown
     pass

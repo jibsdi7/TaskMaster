@@ -207,6 +207,46 @@ async def get_block_versions(
     return versions
 
 
+@router.get("/{block_id}/definition")
+async def get_block_definition(
+    block_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get the current version nodes/edges for a block — used by the executor to inline BLOCK nodes"""
+    block = db.query(models.Block).filter(
+        models.Block.id == block_id,
+        (models.Block.creator_id == current_user.id) | (models.Block.is_public == True)
+    ).first()
+
+    if not block:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Block not found"
+        )
+
+    version = db.query(models.BlockVersion).filter(
+        models.BlockVersion.block_id == block_id,
+        models.BlockVersion.version == block.current_version
+    ).first()
+
+    if not version:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Block has no versions"
+        )
+
+    return {
+        "block_id": block_id,
+        "block_name": block.name,
+        "version": version.version,
+        "nodes": version.nodes,
+        "edges": version.edges,
+        "inputs": version.inputs,
+        "outputs": version.outputs,
+    }
+
+
 @router.get("/{block_id}/versions/{version}", response_model=BlockVersionResponse)
 async def get_block_version(
     block_id: int,

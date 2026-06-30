@@ -1,4 +1,5 @@
-import { Box, Button, ButtonGroup, Chip, Divider, IconButton, Tooltip } from '@mui/material';
+import { Box, Button, Divider, IconButton, InputBase, Tooltip, Typography } from '@mui/material';
+import { useRef, useState } from 'react';
 import {
   Add as NewIcon,
   Save as SaveIcon,
@@ -10,15 +11,17 @@ import {
   PlayArrow as RunIcon,
   Undo as UndoIcon,
   Redo as RedoIcon,
-  ZoomIn as ZoomInIcon,
-  ZoomOut as ZoomOutIcon,
   FitScreen as FitViewIcon,
   AutoFixHigh as AutoLayoutIcon,
   ViewModule as BlockIcon,
+  Download as ImportBlockIcon,
+  Code as CodeIcon,
+  EditOutlined as EditIcon,
 } from '@mui/icons-material';
 
 interface WorkflowToolbarProps {
   workflowName: string;
+  onRenameWorkflow: (name: string) => void;
   status: 'idle' | 'recording' | 'running';
   isRecording: boolean;
   canUndo: boolean;
@@ -38,129 +41,203 @@ interface WorkflowToolbarProps {
   onFitView: () => void;
   onAutoLayout: () => void;
   onSaveAsBlock: () => void;
+  onImportBlock: () => void;
+  onViewCode: () => void;
 }
 
+const Sep = () => (
+  <Divider orientation="vertical" flexItem sx={{ borderColor: '#242424', mx: 0.5 }} />
+);
+
+const TB = ({ title, children, onClick, disabled = false }: any) => (
+  <Tooltip title={title}>
+    <span>
+      <IconButton
+        size="small"
+        onClick={onClick}
+        disabled={disabled}
+        sx={{
+          color: disabled ? '#333' : '#A0A0B4',
+          borderRadius: '7px',
+          width: 30,
+          height: 30,
+          '&:hover': { backgroundColor: '#242424', color: '#E0E0F0' },
+          '&.Mui-disabled': { color: '#333' },
+        }}
+      >
+        {children}
+      </IconButton>
+    </span>
+  </Tooltip>
+);
+
 const WorkflowToolbar = ({
-  workflowName,
-  status,
-  isRecording,
-  canUndo,
-  canRedo,
-  onNew,
-  onSave,
-  onDelete,
-  onImport,
-  onExport,
-  onRecord,
-  onStopRecording,
-  onRun,
-  onUndo,
-  onRedo,
-  onZoomIn,
-  onZoomOut,
-  onFitView,
-  onAutoLayout,
-  onSaveAsBlock,
+  workflowName, onRenameWorkflow, status, isRecording, canUndo, canRedo,
+  onNew, onSave, onDelete, onImport, onExport,
+  onRecord, onStopRecording, onRun, onUndo, onRedo,
+  onZoomIn, onZoomOut, onFitView, onAutoLayout, onSaveAsBlock, onImportBlock, onViewCode,
 }: WorkflowToolbarProps) => {
-  const getStatusColor = () => {
-    switch (status) {
-      case 'recording':
-        return 'error';
-      case 'running':
-        return 'primary';
-      default:
-        return 'default';
-    }
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startEditing = () => {
+    setDraft(workflowName);
+    setEditing(true);
+    // Focus after state update
+    setTimeout(() => inputRef.current?.select(), 0);
   };
 
-  const getStatusLabel = () => {
-    switch (status) {
-      case 'recording':
-        return 'Recording';
-      case 'running':
-        return 'Running';
-      default:
-        return 'Idle';
+  const commitEdit = () => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== workflowName) {
+      onRenameWorkflow(trimmed);
     }
+    setEditing(false);
   };
+
+  const cancelEdit = () => setEditing(false);
 
   return (
     <Box
       sx={{
-        height: 64,
-        backgroundColor: '#1e1e1e',
-        borderBottom: '1px solid #333',
+        height: 52,
+        backgroundColor: '#141414',
+        borderBottom: '1px solid #242424',
         display: 'flex',
         alignItems: 'center',
         px: 2,
-        gap: 2,
+        gap: 0.5,
+        flexShrink: 0,
+        overflowX: 'auto',
+        '&::-webkit-scrollbar': { display: 'none' },
       }}
     >
-      {/* Workflow Name */}
-      <Box sx={{ minWidth: 200 }}>
-        <Chip
-          label={workflowName || 'Untitled Workflow'}
+      {/* Workflow name — inline editable */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          px: 1.25,
+          py: 0.5,
+          backgroundColor: editing ? '#1a1a1a' : '#1c1c1c',
+          border: editing ? '1px solid #5B7CF6' : '1px solid #2a2a2a',
+          borderRadius: '7px',
+          minWidth: 0,
+          flexShrink: 0,
+          maxWidth: 220,
+          transition: 'border-color 0.15s',
+          cursor: editing ? 'text' : 'default',
+        }}
+      >
+        {/* Status dot */}
+        <Box
           sx={{
-            backgroundColor: '#2a2a2a',
-            color: 'white',
-            fontWeight: 600,
+            width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+            backgroundColor: status === 'recording' ? '#F56565'
+              : status === 'running' ? '#F6AD55' : '#48BB78',
+            boxShadow: status !== 'idle'
+              ? `0 0 6px ${status === 'recording' ? 'rgba(245,101,101,0.7)' : 'rgba(246,173,85,0.7)'}` : 'none',
+            animation: status !== 'idle' ? 'pulse 2s infinite' : 'none',
           }}
         />
+
+        {editing ? (
+          <InputBase
+            inputRef={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+              if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+            }}
+            autoFocus
+            sx={{
+              flex: 1,
+              minWidth: 80,
+              maxWidth: 160,
+              '& .MuiInputBase-input': {
+                color: '#FFFFFF',
+                fontSize: '0.83rem',
+                fontWeight: 500,
+                p: 0,
+                caretColor: '#5B7CF6',
+              },
+            }}
+          />
+        ) : (
+          <Typography
+            variant="body2"
+            sx={{
+              color: '#E0E0F0', fontWeight: 500,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              flex: 1, minWidth: 0,
+            }}
+          >
+            {workflowName || 'Untitled Workflow'}
+          </Typography>
+        )}
+
+        {/* Edit pencil — only visible when not editing */}
+        {!editing && (
+          <Tooltip title="Rename workflow">
+            <IconButton
+              size="small"
+              onClick={startEditing}
+              sx={{
+                color: '#444', width: 18, height: 18, flexShrink: 0,
+                '&:hover': { color: '#A0A0B4', backgroundColor: 'transparent' },
+              }}
+            >
+              <EditIcon sx={{ fontSize: 12 }} />
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
 
-      <Divider orientation="vertical" flexItem sx={{ borderColor: '#333' }} />
+      <Sep />
 
-      {/* File Actions */}
-      <ButtonGroup variant="outlined" size="small">
-        <Tooltip title="New Workflow">
-          <Button startIcon={<NewIcon />} onClick={onNew} sx={{ color: 'white', borderColor: '#444' }}>
-            New
-          </Button>
-        </Tooltip>
-        <Tooltip title="Save Workflow">
-          <Button startIcon={<SaveIcon />} onClick={onSave} sx={{ color: 'white', borderColor: '#444' }}>
-            Save
-          </Button>
-        </Tooltip>
-        <Tooltip title="Save as Reusable Block">
-          <Button startIcon={<BlockIcon />} onClick={onSaveAsBlock} sx={{ color: 'white', borderColor: '#444' }}>
-            Save Block
-          </Button>
-        </Tooltip>
-        <Tooltip title="Delete Workflow">
-          <Button startIcon={<DeleteIcon />} onClick={onDelete} sx={{ color: 'white', borderColor: '#444' }}>
-            Delete
-          </Button>
-        </Tooltip>
-      </ButtonGroup>
+      {/* File actions */}
+      <TB title="New" onClick={onNew}><NewIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Save" onClick={onSave}><SaveIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Save as Block" onClick={onSaveAsBlock}><BlockIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Import Block into canvas" onClick={onImportBlock}>
+        <ImportBlockIcon sx={{ fontSize: 16 }} />
+      </TB>
+      <TB title="Delete" onClick={onDelete}><DeleteIcon sx={{ fontSize: 16 }} /></TB>
 
-      <Divider orientation="vertical" flexItem sx={{ borderColor: '#333' }} />
+      <Sep />
 
-      {/* Import/Export */}
-      <ButtonGroup variant="outlined" size="small">
-        <Tooltip title="Import Workflow">
-          <Button startIcon={<ImportIcon />} onClick={onImport} sx={{ color: 'white', borderColor: '#444' }}>
-            Import
-          </Button>
-        </Tooltip>
-        <Tooltip title="Export Workflow">
-          <Button startIcon={<ExportIcon />} onClick={onExport} sx={{ color: 'white', borderColor: '#444' }}>
-            Export
-          </Button>
-        </Tooltip>
-      </ButtonGroup>
+      {/* Import / Export / Code */}
+      <TB title="Import JSON" onClick={onImport}><ImportIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Export JSON" onClick={onExport}><ExportIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="View Code" onClick={onViewCode}><CodeIcon sx={{ fontSize: 16 }} /></TB>
 
-      <Divider orientation="vertical" flexItem sx={{ borderColor: '#333' }} />
+      <Sep />
 
-      {/* Recording Controls */}
+      {/* Record */}
       {!isRecording ? (
         <Tooltip title="Start Recording">
           <Button
             variant="contained"
             color="error"
-            startIcon={<RecordIcon />}
+            startIcon={<RecordIcon sx={{ fontSize: 14 }} />}
             onClick={onRecord}
             size="small"
+            sx={{
+              height: 30, px: 1.5, fontSize: '0.78rem',
+              background: 'rgba(245,101,101,0.15)',
+              color: '#F56565',
+              border: '1px solid rgba(245,101,101,0.3)',
+              boxShadow: 'none',
+              '&:hover': {
+                background: 'rgba(245,101,101,0.25)',
+                boxShadow: 'none',
+                transform: 'none',
+              },
+            }}
           >
             Record
           </Button>
@@ -170,98 +247,71 @@ const WorkflowToolbar = ({
           <Button
             variant="contained"
             color="error"
-            startIcon={<StopIcon />}
+            startIcon={<StopIcon sx={{ fontSize: 14 }} />}
             onClick={onStopRecording}
             size="small"
-            sx={{ animation: 'pulse 2s infinite' }}
+            sx={{
+              height: 30, px: 1.5, fontSize: '0.78rem',
+              background: 'rgba(245,101,101,0.9)',
+              boxShadow: '0 0 12px rgba(245,101,101,0.4)',
+              animation: 'pulse 2s infinite',
+              '&:hover': { transform: 'none' },
+            }}
           >
-            Stop Recording
+            Stop
           </Button>
         </Tooltip>
       )}
 
-      {/* Run Workflow */}
+      {/* Run */}
       <Tooltip title="Run Workflow">
-        <Button
-          variant="contained"
-          color="success"
-          startIcon={<RunIcon />}
-          onClick={onRun}
-          disabled={status === 'running'}
-          size="small"
-        >
-          Run
-        </Button>
+        <span>
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={<RunIcon sx={{ fontSize: 14 }} />}
+            onClick={onRun}
+            disabled={status === 'running'}
+            size="small"
+            sx={{
+              height: 30, px: 1.5, fontSize: '0.78rem',
+              background: status === 'running'
+                ? 'rgba(72,187,120,0.1)'
+                : 'rgba(72,187,120,0.15)',
+              color: status === 'running' ? '#2d6a47' : '#48BB78',
+              border: `1px solid ${status === 'running' ? '#1d4a31' : 'rgba(72,187,120,0.3)'}`,
+              boxShadow: 'none',
+              '&:hover': { background: 'rgba(72,187,120,0.25)', boxShadow: 'none', transform: 'none' },
+              '&.Mui-disabled': { color: '#2d6a47', borderColor: '#1d4a31' },
+            }}
+          >
+            {status === 'running' ? 'Running…' : 'Run'}
+          </Button>
+        </span>
       </Tooltip>
 
-      <Divider orientation="vertical" flexItem sx={{ borderColor: '#333' }} />
+      <Sep />
 
-      {/* Undo/Redo */}
-      <ButtonGroup variant="outlined" size="small">
-        <Tooltip title="Undo">
-          <span>
-            <IconButton onClick={onUndo} disabled={!canUndo} sx={{ color: 'white', borderColor: '#444' }}>
-              <UndoIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Redo">
-          <span>
-            <IconButton onClick={onRedo} disabled={!canRedo} sx={{ color: 'white', borderColor: '#444' }}>
-              <RedoIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </ButtonGroup>
+      {/* Undo / Redo */}
+      <TB title="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>
+        <UndoIcon sx={{ fontSize: 15 }} />
+      </TB>
+      <TB title="Redo (Ctrl+Y)" onClick={onRedo} disabled={!canRedo}>
+        <RedoIcon sx={{ fontSize: 15 }} />
+      </TB>
 
-      <Divider orientation="vertical" flexItem sx={{ borderColor: '#333' }} />
+      <Sep />
 
-      {/* View Controls */}
-      <ButtonGroup variant="outlined" size="small">
-        <Tooltip title="Zoom In">
-          <IconButton onClick={onZoomIn} sx={{ color: 'white', borderColor: '#444' }}>
-            <ZoomInIcon />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Zoom Out">
-          <IconButton onClick={onZoomOut} sx={{ color: 'white', borderColor: '#444' }}>
-            <ZoomOutIcon />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Fit View">
-          <IconButton onClick={onFitView} sx={{ color: 'white', borderColor: '#444' }}>
-            <FitViewIcon />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Auto Layout">
-          <IconButton onClick={onAutoLayout} sx={{ color: 'white', borderColor: '#444' }}>
-            <AutoLayoutIcon />
-          </IconButton>
-        </Tooltip>
-      </ButtonGroup>
+      {/* View */}
+      <TB title="Fit View" onClick={onFitView}><FitViewIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Auto Layout" onClick={onAutoLayout}><AutoLayoutIcon sx={{ fontSize: 16 }} /></TB>
 
-      {/* Status Indicator */}
-      <Box sx={{ ml: 'auto' }}>
-        <Chip
-          label={getStatusLabel()}
-          color={getStatusColor()}
-          size="small"
-          icon={status === 'recording' ? <RecordIcon /> : status === 'running' ? <RunIcon /> : undefined}
-          sx={{
-            fontWeight: 600,
-            animation: status !== 'idle' ? 'pulse 2s infinite' : 'none',
-          }}
-        />
-      </Box>
-
-      <style>
-        {`
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-          }
-        `}
-      </style>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.65; }
+        }
+      `}</style>
     </Box>
   );
 };

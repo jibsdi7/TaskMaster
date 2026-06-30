@@ -44,7 +44,7 @@ const WorkflowCanvasInner = () => {
       const data = event.dataTransfer.getData('application/reactflow');
       if (!data) return;
 
-      const { nodeType, label } = JSON.parse(data);
+      const { nodeType, label, blockId } = JSON.parse(data);
       const position = screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
@@ -57,7 +57,8 @@ const WorkflowCanvasInner = () => {
         data: {
           label,
           nodeType,
-          config: {},
+          // For BLOCK nodes, store the block_id in config so the executor can look it up
+          config: blockId != null ? { block_id: blockId } : {},
           status: 'idle' as const,
           onDelete: deleteNode,
           onSettings: (id: string) => setSelectedNodeId(id),

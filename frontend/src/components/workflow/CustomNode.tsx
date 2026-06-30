@@ -143,7 +143,25 @@ const CustomNode = memo(({ id, data }: NodeProps<CustomNodeData>) => {
             color: color,
           }}
         />
-        {data.config?.selector && (
+        {/* BLOCK node: show which block is referenced */}
+        {data.nodeType === 'BLOCK' && data.config?.block_id && (
+          <Typography
+            variant="caption"
+            sx={{ display: 'block', mt: 1, color: '#7B96F9', fontWeight: 500 }}
+          >
+            Block #{data.config.block_id}
+          </Typography>
+        )}
+        {data.nodeType === 'BLOCK' && !data.config?.block_id && (
+          <Typography
+            variant="caption"
+            sx={{ display: 'block', mt: 1, color: '#F56565' }}
+          >
+            ⚠ No block selected
+          </Typography>
+        )}
+        {/* Regular nodes */}
+        {data.nodeType !== 'BLOCK' && data.config?.selector && (
           <Typography
             variant="caption"
             sx={{
@@ -158,7 +176,7 @@ const CustomNode = memo(({ id, data }: NodeProps<CustomNodeData>) => {
             {data.config.selector}
           </Typography>
         )}
-        {data.config?.value && (
+        {data.nodeType !== 'BLOCK' && data.config?.value && (
           <Typography
             variant="caption"
             sx={{
