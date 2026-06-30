@@ -1,57 +1,52 @@
-"""
-Test the Playwright script parser with the user's script
-"""
-import sys
-sys.path.insert(0, 'backend')
+from backend.app.services.recorder import PlaywrightScriptParser
+import json
 
-from app.services.recorder import PlaywrightScriptParser
+# Workflow 24 script — blazedemo with dropdowns, fill, and press actions
+script = """page.goto("https://blazedemo.com/index.php")
+page.locator("select[name=\\"fromPort\\"]").select_option("Portland")
+page.locator("select[name=\\"toPort\\"]").select_option("Berlin")
+page.get_by_role("button", name="Find Flights").click()
+page.get_by_role("row", name="Choose This Flight 9696 Aer").get_by_role("button").click()
+page.get_by_placeholder("First Last").click()
+page.get_by_placeholder("First Last").fill("Dibyendu")
+page.get_by_placeholder("John Smith").click()
+page.get_by_placeholder("Year").click()
+page.get_by_placeholder("Year").press("Control+a")
+page.get_by_placeholder("Year").fill("2026")
+page.get_by_placeholder("Year").press("Tab")
+page.get_by_placeholder("John Smith").fill("Dibyendu Dey")
+page.get_by_role("button", name="Purchase Flight").click()"""
 
-# User's Playwright script
-script = '''
-from playwright.sync_api import Playwright, sync_playwright, expect
-
-
-def run(playwright: Playwright) -> None:
-    browser = playwright.chromium.launch(headless=False)
-    context = browser.new_context()
-    page = context.new_page()
-    page.goto("https://blazedemo.com/index.php")
-    page.get_by_role("button", name="Find Flights").click()
-    page.get_by_role("row", name="Choose This Flight 4346").get_by_role("button").click()
-    page.get_by_role("button", name="Purchase Flight").click()
-
-    # ---------------------
-    context.close()
-    browser.close()
-
-
-with sync_playwright() as playwright:
-    run(playwright)
-'''
-
-print("="*80)
-print("Testing Playwright Script Parser")
-print("="*80)
-
-# Parse the script
 nodes = PlaywrightScriptParser.parse(script)
-
-print(f"\nParsed {len(nodes)} nodes:\n")
-
-for i, node in enumerate(nodes, 1):
-    print(f"{i}. {node['label']}")
-    print(f"   Type: {node['node_type']}")
-    print(f"   Selector: {node['config'].get('selector', 'N/A')}")
-    if 'url' in node['config']:
-        print(f"   URL: {node['config']['url']}")
+print(f"Total nodes parsed: {len(nodes)}\n")
+for node in nodes:
+    print(json.dumps(node, indent=2))
     print()
 
-print("="*80)
-print("Expected Output:")
-print("1. Navigate to https://blazedemo.com/index.php")
-print("2. Click button: Find Flights")
-print("3. Click button: (from nested selector)")
-print("4. Click button: Purchase Flight")
-print("="*80)
+# Validate expected nodes
+expected = [
+    ("OPEN_URL",  "https://blazedemo.com/index.php"),
+    ("SELECT",    "Portland"),       # fromPort dropdown
+    ("SELECT",    "Berlin"),         # toPort dropdown
+    ("CLICK",     None),             # Find Flights button
+    ("CLICK",     None),             # Choose flight row button
+    ("TYPE",      "Dibyendu"),       # First Last field
+    ("TYPE",      "2026"),           # Year field
+    ("TYPE",      "Dibyendu Dey"),   # John Smith field
+    ("CLICK",     None),             # Purchase Flight button
+]
+
+print("\n--- Validation ---")
+assert len(nodes) == len(expected), f"Expected {len(expected)} nodes, got {len(nodes)}"
+for i, (node, (exp_type, exp_value)) in enumerate(zip(nodes, expected)):
+    assert node["node_type"] == exp_type, \
+        f"Node {i}: expected type '{exp_type}', got '{node['node_type']}'"
+    if exp_value is not None:
+        cfg = node["config"]
+        actual_value = cfg.get("value") or cfg.get("url") or cfg.get("selector")
+        assert exp_value in str(actual_value), \
+            f"Node {i} ({exp_type}): expected value containing '{exp_value}', got '{actual_value}'"
+
+print("All assertions passed ✓")
 
 # Made with Bob

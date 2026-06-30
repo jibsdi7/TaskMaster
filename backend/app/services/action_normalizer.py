@@ -93,7 +93,10 @@ class ActionNormalizer:
         elif ".selectOption(" in script_line or ".select_option(" in script_line:
             action["type"] = "select"
             action["selector"] = ActionNormalizer._extract_selector(script_line)
-            action["value"] = ActionNormalizer._extract_string(script_line, start_after="selectOption")
+            # Extract the option value — regex handles both camelCase and snake_case variants
+            import re as _re
+            _vm = _re.search(r'\.select(?:Option|_option)\(["\']([^"\']+)["\']', script_line)
+            action["value"] = _vm.group(1) if _vm else ActionNormalizer._extract_string(script_line)
             
         elif ".hover()" in script_line:
             action["type"] = "hover"

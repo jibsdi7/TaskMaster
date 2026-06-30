@@ -69,6 +69,12 @@ const WorkflowEditor = () => {
   const [blockName, setBlockName] = useState('');
   const [blockDescription, setBlockDescription] = useState('');
 
+  // State for Import Script dialog
+  const [importScriptOpen, setImportScriptOpen] = useState(false);
+  const [importScriptText, setImportScriptText] = useState('');
+  const [importScriptName, setImportScriptName] = useState('');
+  const [importScriptLoading, setImportScriptLoading] = useState(false);
+
   // State for Import Block dialog
   const [importBlockOpen, setImportBlockOpen] = useState(false);
   const [importBlocks, setImportBlocks] = useState<{ id: number; name: string; description: string; current_version: number }[]>([]);
@@ -579,6 +585,43 @@ const WorkflowEditor = () => {
     setBlockDescription('');
   };
 
+  // ── Import Playwright Script ─────────────────────────────────────────────
+  const handleImportScript = () => {
+    setImportScriptText('');
+    setImportScriptName('');
+    setImportScriptOpen(true);
+  };
+
+  const handleImportScriptConfirm = async () => {
+    if (!importScriptName.trim()) {
+      toast.error('Please enter a workflow name');
+      return;
+    }
+    if (!importScriptText.trim()) {
+      toast.error('Please paste a Playwright script');
+      return;
+    }
+    try {
+      setImportScriptLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        'http://localhost:8000/api/recorder/import-script',
+        {
+          playwright_script: importScriptText.trim(),
+          workflow_name: importScriptName.trim(),
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setImportScriptOpen(false);
+      toast.success(`Imported "${response.data.workflow_name}" — ${response.data.nodes_count} nodes`);
+      navigate(`/workflows/${response.data.workflow_id}`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to import script');
+    } finally {
+      setImportScriptLoading(false);
+    }
+  };
+
   // ── Import Block ────────────────────────────────────────────────────────
   const handleImportBlock = async () => {
     setImportBlockOpen(true);
@@ -679,6 +722,7 @@ const WorkflowEditor = () => {
         onSaveAsBlock={handleSaveAsBlock}
         onImportBlock={handleImportBlock}
         onViewCode={handleViewCode}
+        onImportScript={handleImportScript}
       />
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <NodePalette />
@@ -886,6 +930,66 @@ const WorkflowEditor = () => {
           <Button onClick={handleSaveBlockCancel}>Cancel</Button>
           <Button onClick={handleSaveBlockConfirm} variant="contained" color="primary">
             Save Block
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Import Playwright Script Dialog */}
+      <Dialog
+        open={importScriptOpen}
+        onClose={() => !importScriptLoading && setImportScriptOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { backgroundColor: '#1c1c1c', border: '1px solid #2a2a2a' } }}
+      >
+        <DialogTitle sx={{ color: '#FFFFFF', borderBottom: '1px solid #2a2a2a', pb: 1.5 }}>
+          Import Playwright Script
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Workflow Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={importScriptName}
+            onChange={(e) => setImportScriptName(e.target.value)}
+            placeholder="e.g. BlazeDemo Purchase Flow"
+            sx={{ mb: 2 }}
+            InputLabelProps={{ sx: { color: '#888' } }}
+            inputProps={{ style: { color: '#E0E0E0' } }}
+          />
+          <TextField
+            label="Playwright Script"
+            multiline
+            rows={16}
+            fullWidth
+            variant="outlined"
+            value={importScriptText}
+            onChange={(e) => setImportScriptText(e.target.value)}
+            placeholder={`Paste your Playwright Python script here, e.g.:\n\npage.goto("https://blazedemo.com/index.php")\npage.locator('select[name="fromPort"]').select_option("Portland")\npage.get_by_placeholder("First Last").fill("John")\npage.get_by_role("button", name="Find Flights").click()`}
+            sx={{ fontFamily: '"Fira Code", monospace' }}
+            InputLabelProps={{ sx: { color: '#888' } }}
+            inputProps={{ style: { color: '#E0E0E0', fontFamily: '"Fira Code", "Consolas", monospace', fontSize: 13 } }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid #2a2a2a', px: 2, py: 1.5 }}>
+          <Button
+            onClick={() => setImportScriptOpen(false)}
+            disabled={importScriptLoading}
+            sx={{ color: '#666' }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleImportScriptConfirm}
+            variant="contained"
+            color="primary"
+            disabled={importScriptLoading}
+            startIcon={importScriptLoading ? <CircularProgress size={14} color="inherit" /> : undefined}
+          >
+            {importScriptLoading ? 'Importing…' : 'Import'}
           </Button>
         </DialogActions>
       </Dialog>

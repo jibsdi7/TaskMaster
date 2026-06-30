@@ -130,21 +130,39 @@ class PlaywrightScriptParser:
         lines = script.split('\n')
         node_id = 0
         
-        # Pre-process to identify click+fill patterns
+        # Pre-process to identify click+fill patterns.
+        # Playwright codegen always emits .click() before .fill() on text fields.
+        # We skip ALL such focus-clicks so only the TYPE/fill node is kept.
+        # Strategy:
+        #   1. Same-selector click→fill on adjacent lines (original rule).
+        #   2. Any .click() on a placeholder/input/textarea selector — these are
+        #      always codegen focus artefacts; the matching .fill() will be parsed.
         i = 0
         skip_next_click = set()
+        fill_selectors: set = set()
+
+        # First pass: collect all selectors that have a .fill() anywhere in the script
+        for line in lines:
+            stripped = line.strip()
+            if '.fill(' in stripped:
+                sel = PlaywrightScriptParser._extract_selector(stripped)
+                if sel:
+                    fill_selectors.add(sel)
+
         while i < len(lines):
             line = lines[i].strip()
-            # Check if this is a click followed by fill on same selector
-            if '.click()' in line and i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
-                if '.fill(' in next_line:
-                    # Extract selectors from both lines
-                    click_selector = PlaywrightScriptParser._extract_selector(line)
-                    fill_selector = PlaywrightScriptParser._extract_selector(next_line)
-                    # If same selector, skip the click (it's just focusing the field)
-                    if click_selector == fill_selector:
-                        skip_next_click.add(i)
+            if '.click()' in line:
+                click_selector = PlaywrightScriptParser._extract_selector(line)
+                # Skip if this click selector will later be filled (focus artefact)
+                if click_selector and click_selector in fill_selectors:
+                    skip_next_click.add(i)
+                # Also skip the original adjacent click→fill pattern (same selector)
+                elif i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if '.fill(' in next_line:
+                        fill_selector = PlaywrightScriptParser._extract_selector(next_line)
+                        if click_selector == fill_selector:
+                            skip_next_click.add(i)
             i += 1
         
         # Parse lines
@@ -268,11 +286,16 @@ class PlaywrightScriptParser:
                 })
                 node_id += 1
             
+            # Parse page.press() — keyboard shortcuts emitted by codegen (Tab, Control+a, etc.)
+            # These are implementation artefacts, not meaningful user actions; skip them.
+            elif '.press(' in line:
+                continue
+
             # Parse page.selectOption() or .select_option()
             elif '.selectOption(' in line or '.select_option(' in line:
                 selector = PlaywrightScriptParser._extract_selector(line)
-                # Extract value from select_option("value") call
-                value_match = re.search(r'\.select_option\(["\']([^"\']+)["\']', line)
+                # Extract value — handle both camelCase (.selectOption) and snake_case (.select_option)
+                value_match = re.search(r'\.select(?:Option|_option)\(["\']([^"\']+)["\']', line)
                 value = value_match.group(1) if value_match else ""
                 
                 # Create better label

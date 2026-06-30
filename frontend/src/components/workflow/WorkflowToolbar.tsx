@@ -17,6 +17,7 @@ import {
   Download as ImportBlockIcon,
   Code as CodeIcon,
   EditOutlined as EditIcon,
+  ContentPaste as ImportScriptIcon,
 } from '@mui/icons-material';
 
 interface WorkflowToolbarProps {
@@ -43,6 +44,7 @@ interface WorkflowToolbarProps {
   onSaveAsBlock: () => void;
   onImportBlock: () => void;
   onViewCode: () => void;
+  onImportScript: () => void;
 }
 
 const Sep = () => (
@@ -76,6 +78,7 @@ const WorkflowToolbar = ({
   onNew, onSave, onDelete, onImport, onExport,
   onRecord, onStopRecording, onRun, onUndo, onRedo,
   onZoomIn, onZoomOut, onFitView, onAutoLayout, onSaveAsBlock, onImportBlock, onViewCode,
+  onImportScript,
 }: WorkflowToolbarProps) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -213,6 +216,9 @@ const WorkflowToolbar = ({
       {/* Import / Export / Code */}
       <TB title="Import JSON" onClick={onImport}><ImportIcon sx={{ fontSize: 16 }} /></TB>
       <TB title="Export JSON" onClick={onExport}><ExportIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Import Playwright Script" onClick={onImportScript}>
+        <ImportScriptIcon sx={{ fontSize: 16 }} />
+      </TB>
       <TB title="View Code" onClick={onViewCode}><CodeIcon sx={{ fontSize: 16 }} /></TB>
 
       <Sep />
