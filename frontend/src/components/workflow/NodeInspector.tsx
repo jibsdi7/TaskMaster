@@ -77,6 +77,8 @@ interface BlockSummary {
 const NodeInspector = () => {
   const { nodes, selectedNodeId, updateNode, setSelectedNodeId } = useWorkflowStore();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+  // Keep a ref to always read the latest store state inside callbacks
+  const storeRef = useWorkflowStore;
 
   const [localData, setLocalData] = useState<any>({});
   const [collapsed, setCollapsed] = useState(false);
@@ -125,7 +127,9 @@ const NodeInspector = () => {
     } else if (field === 'nodeType') {
       updateNode(selectedNodeId!, { nodeType: value });
     } else {
-      const updatedConfig = { ...selectedNode!.data.config };
+      // Always read from the live store state to avoid stale-closure overwrites
+      const liveNode = storeRef.getState().nodes.find((n) => n.id === selectedNodeId);
+      const updatedConfig = { ...(liveNode?.data.config ?? selectedNode!.data.config) };
       updatedConfig[field] = value;
       updateNode(selectedNodeId!, { config: updatedConfig });
     }
