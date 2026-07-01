@@ -19,11 +19,21 @@ interface WorkflowLog {
   message: string;
   node_id: string | null;
   timestamp: string;
-  // enriched fields added by executor
+  created_at?: string;
+  // enriched fields — present as top-level keys when logs come from the
+  // inline execute response, and nested under metadata when read back via
+  // the /executions/ API (WorkflowLogResponse schema).
   node_type?: string;
   node_label?: string;
   duration_ms?: number;
   node_status?: 'passed' | 'failed';
+  metadata?: {
+    node_type?: string;
+    node_label?: string;
+    duration_ms?: number;
+    node_status?: 'passed' | 'failed';
+    [key: string]: any;
+  };
 }
 
 interface ExecutionRun {
@@ -44,6 +54,20 @@ function toUTC(iso: string): string {
   return /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
 }
 
+/**
+ * Resolve an enriched field from a log entry.
+ * The executor stores them as top-level keys in memory; when persisted to DB
+ * and returned via /executions/ API they are nested under `metadata`.
+ */
+function logField<T>(log: WorkflowLog, key: keyof WorkflowLog & string): T | undefined {
+  return (log[key] ?? log.metadata?.[key]) as T | undefined;
+}
+
+/** Use log.timestamp when coming from in-memory logs, created_at from DB */
+function logTime(log: WorkflowLog): string {
+  return log.timestamp || log.created_at || '';
+}
+
 /** Derive one summary row per node from the log stream.
  *  We look for the "passed" or "failed" result log that carries duration_ms.
  */
@@ -59,19 +83,16 @@ function buildNodeStats(logs: WorkflowLog[]): NodeStat[] {
   const seen = new Set<string>();
   const stats: NodeStat[] = [];
   for (const log of logs) {
-    if (
-      log.node_id &&
-      log.duration_ms !== undefined &&
-      log.node_status &&
-      !seen.has(log.node_id)
-    ) {
+    const dms   = logField<number>(log, 'duration_ms');
+    const nstat = logField<'passed' | 'failed'>(log, 'node_status');
+    if (log.node_id && dms !== undefined && nstat && !seen.has(log.node_id)) {
       seen.add(log.node_id);
       stats.push({
-        node_id: log.node_id,
-        node_label: log.node_label || log.node_id,
-        node_type: log.node_type || '',
-        duration_ms: log.duration_ms,
-        status: log.node_status,
+        node_id:    log.node_id,
+        node_label: logField<string>(log, 'node_label') || log.node_id,
+        node_type:  logField<string>(log, 'node_type')  || '',
+        duration_ms: dms,
+        status:      nstat,
       });
     }
   }
@@ -435,59 +456,64 @@ const ExecutionDetails = () => {
         </Typography>
         {execution.logs && execution.logs.length > 0 ? (
           <List sx={{ maxHeight: 420, overflow: 'auto', bgcolor: '#0d0d1a', borderRadius: 1, border: '1px solid #1e1e2e' }}>
-            {execution.logs.map((log, index) => (
-              <Box key={index}>
-                <ListItem sx={{ py: 0.5 }}>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                        <Chip
-                          label={log.level}
-                          size="small"
-                          color={getLogLevelColor(log.level)}
-                          sx={{ height: 18, fontSize: '0.68rem' }}
-                        />
-                        {log.node_id && (
+            {execution.logs.map((log, index) => {
+              const lnLabel  = logField<string>(log, 'node_label');
+              const lnStatus = logField<'passed'|'failed'>(log, 'node_status');
+              const lnDms    = logField<number>(log, 'duration_ms');
+              const lnType   = logField<string>(log, 'node_type');
+              const ts       = logTime(log);
+              return (
+                <Box key={index}>
+                  <ListItem sx={{ py: 0.5 }}>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                           <Chip
-                            label={log.node_label || log.node_id}
+                            label={log.level}
                             size="small"
-                            variant="outlined"
-                            sx={{ height: 18, fontSize: '0.68rem', color: '#888', borderColor: '#2a2a3a' }}
+                            color={getLogLevelColor(log.level)}
+                            sx={{ height: 18, fontSize: '0.68rem' }}
                           />
-                        )}
-                        {log.node_status && (
-                          <Chip
-                            label={log.node_status.toUpperCase()}
-                            size="small"
-                            sx={{
-                              height: 18, fontSize: '0.68rem', fontWeight: 700,
-                              bgcolor: log.node_status === 'passed' ? '#1a3a2a' : '#3a1a1a',
-                              color:   log.node_status === 'passed' ? '#68d391'  : '#fc8181',
-                            }}
-                          />
-                        )}
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#c0c0d0', fontSize: '0.8rem' }}>
-                          {log.message}
+                          {log.node_id && (
+                            <Chip
+                              label={lnLabel || log.node_id}
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 18, fontSize: '0.68rem', color: '#888', borderColor: '#2a2a3a' }}
+                            />
+                          )}
+                          {lnStatus && (
+                            <Chip
+                              label={lnStatus.toUpperCase()}
+                              size="small"
+                              sx={{
+                                height: 18, fontSize: '0.68rem', fontWeight: 700,
+                                bgcolor: lnStatus === 'passed' ? '#1a3a2a' : '#3a1a1a',
+                                color:   lnStatus === 'passed' ? '#68d391'  : '#fc8181',
+                              }}
+                            />
+                          )}
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#c0c0d0', fontSize: '0.8rem' }}>
+                            {log.message}
+                          </Typography>
+                        </Box>
+                      }
+                      secondary={
+                        <Typography variant="caption" sx={{ color: '#555', fontFamily: 'monospace' }}>
+                          {ts ? new Date(ts).toLocaleTimeString() : ''}
+                          {lnDms !== undefined && lnType !== 'DELAY'
+                            ? `  ·  ${lnDms >= 1000 ? `${(lnDms / 1000).toFixed(2)} s` : `${lnDms} ms`}`
+                            : ''}
                         </Typography>
-                      </Box>
-                    }
-                    secondary={
-                      <Typography variant="caption" sx={{ color: '#555', fontFamily: 'monospace' }}>
-                        {new Date(log.timestamp).toLocaleTimeString()}
-                        {log.duration_ms !== undefined && log.node_type !== 'DELAY'
-                          ? `  ·  ${log.duration_ms >= 1000
-                              ? `${(log.duration_ms / 1000).toFixed(2)} s`
-                              : `${log.duration_ms} ms`}`
-                          : ''}
-                      </Typography>
-                    }
-                  />
-                </ListItem>
-                {index < execution.logs.length - 1 && (
-                  <Divider sx={{ borderColor: '#1a1a2a' }} />
-                )}
-              </Box>
-            ))}
+                      }
+                    />
+                  </ListItem>
+                  {index < execution.logs.length - 1 && (
+                    <Divider sx={{ borderColor: '#1a1a2a' }} />
+                  )}
+                </Box>
+              );
+            })}
           </List>
         ) : (
           <Alert severity="info">No logs available yet</Alert>
