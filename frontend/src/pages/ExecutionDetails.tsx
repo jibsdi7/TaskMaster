@@ -238,7 +238,7 @@ function NodeTimingChart({ stats }: { stats: NodeStat[] }) {
 // Status helpers
 // ─────────────────────────────────────────────────────────────────────────────
 function getStatusColor(status: string): 'success' | 'error' | 'info' | 'warning' | 'default' {
-  switch (status) {
+  switch (status.toUpperCase()) {
     case 'COMPLETED': return 'success';
     case 'FAILED':    return 'error';
     case 'RUNNING':   return 'info';
@@ -248,7 +248,7 @@ function getStatusColor(status: string): 'success' | 'error' | 'info' | 'warning
 }
 
 function getLogLevelColor(level: string): 'error' | 'warning' | 'info' | 'default' {
-  switch (level) {
+  switch (level.toUpperCase()) {
     case 'ERROR':   return 'error';
     case 'WARNING': return 'warning';
     case 'INFO':    return 'info';
@@ -270,7 +270,8 @@ const ExecutionDetails = () => {
     try {
       const response = await axios.get(`http://localhost:8000/api/executions/${runId}`);
       setExecution(response.data);
-      if (response.data.status === 'COMPLETED' || response.data.status === 'FAILED') {
+      const s = (response.data.status as string).toUpperCase();
+      if (s === 'COMPLETED' || s === 'FAILED') {
         setPolling(false);
       }
       setError(null);
