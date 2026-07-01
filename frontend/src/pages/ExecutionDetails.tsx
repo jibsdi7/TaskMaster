@@ -103,49 +103,53 @@ function buildNodeStats(logs: WorkflowLog[]): NodeStat[] {
 // Horizontal bar chart — pure SVG, no external library
 // DELAY nodes are excluded from the chart per requirements.
 // ─────────────────────────────────────────────────────────────────────────────
-const BAR_H = 20;
-const BAR_GAP = 10;
-const LABEL_W = 160;
-const VALUE_W = 58;
-const CHART_PADDING = 16;
+const BAR_H    = 32;   // taller bars
+const BAR_GAP  = 14;   // more breathing room between bars
+const LABEL_W  = 210;  // wider label column
+const VALUE_W  = 80;   // wider value column
+const BAR_AREA = 520;  // wider chart area
+const CHART_PADDING = 24;
+
+const PASS_COLOR = '#48bb78';  // green
+const FAIL_COLOR = '#f56565';  // red
 
 function NodeTimingChart({ stats }: { stats: NodeStat[] }) {
   const chartStats = stats.filter((s) => s.node_type !== 'DELAY');
   if (chartStats.length === 0) return null;
 
   const maxMs = Math.max(...chartStats.map((s) => s.duration_ms), 1);
-  const BAR_AREA = 320;
-  const svgW = LABEL_W + BAR_AREA + VALUE_W + CHART_PADDING * 2;
-  const svgH = chartStats.length * (BAR_H + BAR_GAP) + BAR_GAP + 24; // +24 for x-axis label row
+  const svgW = CHART_PADDING + LABEL_W + BAR_AREA + VALUE_W + CHART_PADDING;
+  const rowH  = BAR_H + BAR_GAP;
+  const axisH = 28;   // space for x-axis labels at bottom
+  const svgH  = BAR_GAP + chartStats.length * rowH + axisH;
 
-  // x-axis tick values
-  const ticks = [0, Math.round(maxMs * 0.25), Math.round(maxMs * 0.5), Math.round(maxMs * 0.75), maxMs];
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxMs * f));
 
   return (
-    <Box sx={{ overflowX: 'auto' }}>
+    <Box sx={{ overflowX: 'auto', pb: 1 }}>
       <svg
         width={svgW}
         height={svgH}
         style={{ display: 'block', fontFamily: 'inherit' }}
       >
-        {/* Grid lines + tick labels */}
+        {/* Grid lines + x-axis tick labels */}
         {ticks.map((t) => {
           const x = CHART_PADDING + LABEL_W + (t / maxMs) * BAR_AREA;
           return (
             <g key={t}>
               <line
                 x1={x} y1={BAR_GAP / 2}
-                x2={x} y2={svgH - 24}
-                stroke="#2a2a3a"
-                strokeWidth={1}
-                strokeDasharray={t === 0 ? undefined : '3 3'}
+                x2={x} y2={svgH - axisH}
+                stroke={t === 0 ? '#3a3a5a' : '#252538'}
+                strokeWidth={t === 0 ? 1.5 : 1}
+                strokeDasharray={t === 0 ? undefined : '4 4'}
               />
               <text
                 x={x}
-                y={svgH - 6}
+                y={svgH - 8}
                 textAnchor="middle"
-                fontSize={10}
-                fill="#666"
+                fontSize={11}
+                fill="#555"
               >
                 {t >= 1000 ? `${(t / 1000).toFixed(1)}s` : `${t}ms`}
               </text>
@@ -155,57 +159,68 @@ function NodeTimingChart({ stats }: { stats: NodeStat[] }) {
 
         {/* Bars */}
         {chartStats.map((s, i) => {
-          const y = BAR_GAP / 2 + i * (BAR_H + BAR_GAP);
-          const barW = Math.max(2, (s.duration_ms / maxMs) * BAR_AREA);
-          const barColor = s.status === 'failed' ? '#f56565' : '#5B7CF6';
-          const labelX = CHART_PADDING + LABEL_W - 6;
-          const barX = CHART_PADDING + LABEL_W;
-          const valX = barX + BAR_AREA + 6;
+          const y       = BAR_GAP / 2 + i * rowH;
+          const barW    = Math.max(4, (s.duration_ms / maxMs) * BAR_AREA);
+          const barColor = s.status === 'failed' ? FAIL_COLOR : PASS_COLOR;
+          const labelX  = CHART_PADDING + LABEL_W - 8;
+          const barX    = CHART_PADDING + LABEL_W;
+          const valX    = barX + BAR_AREA + 8;
 
           // truncate long labels
-          const label =
-            s.node_label.length > 20 ? s.node_label.slice(0, 18) + '…' : s.node_label;
+          const label = s.node_label.length > 26
+            ? s.node_label.slice(0, 24) + '…'
+            : s.node_label;
 
           return (
             <g key={s.node_id}>
               {/* node label */}
               <text
                 x={labelX}
-                y={y + BAR_H / 2 + 4}
+                y={y + BAR_H / 2 + 5}
                 textAnchor="end"
-                fontSize={11}
-                fill="#c0c0d0"
+                fontSize={12}
+                fill="#c8c8e0"
               >
                 {label}
               </text>
 
-              {/* bar background */}
+              {/* bar track */}
               <rect
-                x={barX}
-                y={y}
-                width={BAR_AREA}
-                height={BAR_H}
-                rx={3}
-                fill="#1a1a2e"
+                x={barX} y={y}
+                width={BAR_AREA} height={BAR_H}
+                rx={4} fill="#1a1a2e"
               />
 
               {/* bar fill */}
               <rect
-                x={barX}
-                y={y}
-                width={barW}
-                height={BAR_H}
-                rx={3}
-                fill={barColor}
-                opacity={0.85}
+                x={barX} y={y}
+                width={barW} height={BAR_H}
+                rx={4} fill={barColor}
               />
 
-              {/* duration value */}
+              {/* inline duration label inside bar (if wide enough) */}
+              {barW > 48 && (
+                <text
+                  x={barX + barW - 6}
+                  y={y + BAR_H / 2 + 5}
+                  textAnchor="end"
+                  fontSize={11}
+                  fill="rgba(0,0,0,0.75)"
+                  fontWeight="600"
+                >
+                  {s.duration_ms >= 1000
+                    ? `${(s.duration_ms / 1000).toFixed(2)}s`
+                    : `${s.duration_ms}ms`}
+                </text>
+              )}
+
+              {/* duration value to the right */}
               <text
                 x={valX}
-                y={y + BAR_H / 2 + 4}
-                fontSize={11}
-                fill="#aaa"
+                y={y + BAR_H / 2 + 5}
+                fontSize={12}
+                fill={barColor}
+                fontWeight="600"
               >
                 {s.duration_ms >= 1000
                   ? `${(s.duration_ms / 1000).toFixed(2)}s`
@@ -437,12 +452,12 @@ const ExecutionDetails = () => {
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, mb: 1.5, flexWrap: 'wrap' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
-              <Box sx={{ width: 12, height: 12, borderRadius: 1, bgcolor: '#5B7CF6' }} />
-              <Typography sx={{ color: '#888', fontSize: '0.78rem' }}>Passed</Typography>
+              <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: '#48bb78' }} />
+              <Typography sx={{ color: '#48bb78', fontSize: '0.82rem', fontWeight: 600 }}>Passed</Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
-              <Box sx={{ width: 12, height: 12, borderRadius: 1, bgcolor: '#f56565' }} />
-              <Typography sx={{ color: '#888', fontSize: '0.78rem' }}>Failed</Typography>
+              <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: '#f56565' }} />
+              <Typography sx={{ color: '#f56565', fontSize: '0.82rem', fontWeight: 600 }}>Failed</Typography>
             </Box>
           </Box>
           <NodeTimingChart stats={nodeStats} />
