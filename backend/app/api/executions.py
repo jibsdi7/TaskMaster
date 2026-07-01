@@ -43,7 +43,7 @@ async def list_executions(
     return runs
 
 
-@router.get("/{run_id}", response_model=WorkflowRunResponse)
+@router.get("/{run_id}")
 async def get_execution(
     run_id: str,
     db: Session = Depends(get_db),
@@ -71,8 +71,37 @@ async def get_execution(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
         )
-    
-    return run
+
+    # Load logs from the WorkflowLog relationship (not the empty `logs` JSON column)
+    wf_logs = db.query(models.WorkflowLog).filter(
+        models.WorkflowLog.run_id == run.id
+    ).order_by(models.WorkflowLog.created_at.asc()).all()
+
+    return {
+        "id": run.id,
+        "workflow_id": run.workflow_id,
+        "run_id": run.run_id,
+        "status": run.status,
+        "started_at": run.started_at,
+        "completed_at": run.completed_at,
+        "duration_seconds": run.duration_seconds,
+        "error_message": run.error_message,
+        "result": run.result or {},
+        "logs": [
+            {
+                "id": l.id,
+                "run_id": l.run_id,
+                "node_id": l.node_id,
+                "level": l.level,
+                "message": l.message,
+                "screenshot_path": l.screenshot_path,
+                "meta_data": l.meta_data or {},
+                "timestamp": l.created_at.isoformat() if l.created_at else None,
+                "created_at": l.created_at.isoformat() if l.created_at else None,
+            }
+            for l in wf_logs
+        ],
+    }
 
 
 @router.get("/{run_id}/logs", response_model=List[WorkflowLogResponse])
