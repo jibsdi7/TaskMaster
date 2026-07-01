@@ -21,6 +21,9 @@ interface WorkflowState {
   history: { nodes: Node[]; edges: Edge[] }[];
   historyIndex: number;
   
+  // Auto-layout trigger: incremented by autoLayout so WorkflowCanvas can call fitView
+  layoutVersion: number;
+
   // Actions
   setWorkflowId: (id: string | null) => void;
   setWorkflowName: (name: string) => void;
@@ -79,6 +82,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   isRecording: false,
   history: [],
   historyIndex: -1,
+  layoutVersion: 0,
 
   // Setters
   setWorkflowId: (id) => set({ workflowId: id }),
@@ -422,25 +426,73 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   autoLayout: () => {
-    const { nodes } = get();
-    const COLUMN_WIDTH = 300;
-    const ROW_HEIGHT = 150;
-    const NODES_PER_COLUMN = 8;
-    
-    const layoutedNodes = nodes.map((node, index) => {
-      const column = Math.floor(index / NODES_PER_COLUMN);
-      const row = index % NODES_PER_COLUMN;
-      
-      return {
-        ...node,
-        position: {
-          x: column * COLUMN_WIDTH + 50,
-          y: row * ROW_HEIGHT + 50,
-        },
-      };
+    const { nodes, edges } = get();
+    if (nodes.length === 0) return;
+
+    const NODE_WIDTH  = 220;  // approximate rendered width of CustomNode
+    const NODE_HEIGHT = 100;  // approximate rendered height
+    const H_GAP = 80;         // horizontal gap between nodes in the same rank
+    const V_GAP = 100;        // vertical gap between ranks
+
+    // ── 1. Build adjacency and in-degree maps ──────────────────────────────
+    const inDegree: Record<string, number>   = {};
+    const children: Record<string, string[]> = {};
+    const nodeIds = new Set(nodes.map((n) => n.id));
+
+    nodes.forEach((n) => { inDegree[n.id] = 0; children[n.id] = []; });
+
+    edges.forEach((e) => {
+      if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) return;
+      inDegree[e.target] = (inDegree[e.target] ?? 0) + 1;
+      children[e.source].push(e.target);
     });
-    
-    set({ nodes: layoutedNodes });
+
+    // ── 2. Kahn's BFS → assign rank (layer) to each node ──────────────────
+    const rank: Record<string, number> = {};
+    const queue: string[] = [];
+    nodes.forEach((n) => { if (inDegree[n.id] === 0) queue.push(n.id); });
+
+    const workDeg = { ...inDegree };
+    let head = 0;
+    while (head < queue.length) {
+      const id = queue[head++];
+      const r = rank[id] ?? 0;
+      children[id].forEach((child) => {
+        rank[child] = Math.max(rank[child] ?? 0, r + 1);
+        workDeg[child]--;
+        if (workDeg[child] === 0) queue.push(child);
+      });
+    }
+
+    // Nodes not reached by BFS (disconnected / cycle members) → own ranks
+    const maxBfsRank = nodes.reduce((m, n) => Math.max(m, rank[n.id] ?? 0), 0);
+    let floatingRank = maxBfsRank + 1;
+    nodes.forEach((n) => { if (rank[n.id] === undefined) rank[n.id] = floatingRank++; });
+
+    // ── 3. Group by rank, then x-centre each rank ─────────────────────────
+    const byRank: Record<number, string[]> = {};
+    nodes.forEach((n) => { const r = rank[n.id]; (byRank[r] = byRank[r] ?? []).push(n.id); });
+
+    const pos: Record<string, { x: number; y: number }> = {};
+    Object.keys(byRank)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .forEach((r) => {
+        const ids = byRank[r];
+        const totalW = ids.length * NODE_WIDTH + (ids.length - 1) * H_GAP;
+        const startX = -totalW / 2;
+        ids.forEach((id, i) => {
+          pos[id] = {
+            x: startX + i * (NODE_WIDTH + H_GAP),
+            y: r * (NODE_HEIGHT + V_GAP),
+          };
+        });
+      });
+
+    set((state) => ({
+      nodes: nodes.map((n) => ({ ...n, position: pos[n.id] ?? n.position })),
+      layoutVersion: state.layoutVersion + 1,
+    }));
     get().saveToHistory();
   },
 }));

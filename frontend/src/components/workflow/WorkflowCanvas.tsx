@@ -24,7 +24,7 @@ const edgeTypes = {
 
 const WorkflowCanvasInner = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
 
   // Fetch live blocks so the insert popup can show them too
   const [blockNodes, setBlockNodes] = useState<NodeTemplate[]>([]);
@@ -64,7 +64,20 @@ const WorkflowCanvasInner = () => {
     addNode,
     deleteNode,
     setSelectedNodeId,
+    layoutVersion,
   } = useWorkflowStore();
+
+  // Watch layoutVersion — when autoLayout fires, wait one frame for ReactFlow
+  // to process the new positions, then fit the view with a smooth animation.
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) { isInitialMount.current = false; return; }
+    const timer = setTimeout(() => {
+      fitView({ duration: 400, padding: 0.15 });
+    }, 50);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutVersion]);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
