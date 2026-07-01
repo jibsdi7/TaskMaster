@@ -143,13 +143,13 @@ const CustomNode = memo(({ id, data }: NodeProps<CustomNodeData>) => {
             color: color,
           }}
         />
-        {/* BLOCK node: show which block is referenced */}
+        {/* BLOCK node: show reusable indicator or warning */}
         {data.nodeType === 'BLOCK' && data.config?.block_id && (
           <Typography
             variant="caption"
-            sx={{ display: 'block', mt: 1, color: '#7B96F9', fontWeight: 500 }}
+            sx={{ display: 'block', mt: 1, color: '#94A3B8', fontStyle: 'italic' }}
           >
-            Block #{data.config.block_id}
+            Reusable block
           </Typography>
         )}
         {data.nodeType === 'BLOCK' && !data.config?.block_id && (

@@ -54,6 +54,13 @@ interface WorkflowState {
     blockName: string
   ) => { snapshot: { nodes: Node[]; edges: Edge[] }; blockNodeId: string } | null;
 
+  // Expand a BLOCK node back into its constituent nodes/edges (dismantle)
+  expandBlockNode: (
+    blockNodeId: string,
+    definitionNodes: Array<{ node_id: string; node_type: string; label: string; position_x: number; position_y: number; config: Record<string, any> }>,
+    definitionEdges: Array<{ edge_id: string; source_node_id: string; target_node_id: string; source_handle?: string; target_handle?: string }>
+  ) => void;
+
   // Workflow actions
   clearWorkflow: () => void;
   loadWorkflow: (workflow: { id: string; name: string; description: string; nodes: Node[]; edges: Edge[] }) => void;
@@ -329,6 +336,89 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
     get().saveToHistory();
     return { snapshot, blockNodeId };
+  },
+
+  expandBlockNode: (blockNodeId, definitionNodes, definitionEdges) => {
+    const { nodes, edges } = get();
+    const blockNode = nodes.find((n) => n.id === blockNodeId);
+    if (!blockNode) return;
+
+    const bx = blockNode.position.x;
+    const by = blockNode.position.y;
+
+    // Compute centroid of the definition nodes so we can offset them
+    // to land where the BLOCK node currently sits.
+    const cx = definitionNodes.length
+      ? definitionNodes.reduce((s, n) => s + n.position_x, 0) / definitionNodes.length
+      : 0;
+    const cy = definitionNodes.length
+      ? definitionNodes.reduce((s, n) => s + n.position_y, 0) / definitionNodes.length
+      : 0;
+
+    // Build id-remapping: definition uses its own node_ids; we stamp fresh ids
+    // to avoid collisions with anything already on the canvas.
+    const idMap: Record<string, string> = {};
+    const now = Date.now();
+    definitionNodes.forEach((dn, i) => {
+      idMap[dn.node_id] = `exp_${now}_${i}`;
+    });
+
+    const expandedNodes: Node[] = definitionNodes.map((dn) => ({
+      id: idMap[dn.node_id],
+      type: 'custom',
+      position: {
+        x: bx + (dn.position_x - cx),
+        y: by + (dn.position_y - cy),
+      },
+      data: {
+        label: dn.label,
+        nodeType: dn.node_type,
+        config: dn.config || {},
+        status: 'idle' as const,
+      },
+    }));
+
+    const expandedEdges: Edge[] = definitionEdges.map((de, i) => ({
+      id: `exp_edge_${now}_${i}`,
+      type: 'addable',
+      animated: true,
+      style: { stroke: '#607D8B', strokeWidth: 2 },
+      source: idMap[de.source_node_id] ?? de.source_node_id,
+      target: idMap[de.target_node_id] ?? de.target_node_id,
+      sourceHandle: de.source_handle ?? undefined,
+      targetHandle: de.target_handle ?? undefined,
+    }));
+
+    // Find boundary nodes in the definition: the entry node (no incoming def
+    // edge) and exit node (no outgoing def edge). Used to re-wire canvas edges.
+    const defTargetIds = new Set(definitionEdges.map((e) => e.target_node_id));
+    const defSourceIds = new Set(definitionEdges.map((e) => e.source_node_id));
+    const entryDefId = definitionNodes.find((n) => !defTargetIds.has(n.node_id))?.node_id
+      ?? definitionNodes[0]?.node_id;
+    const exitDefId = definitionNodes.find((n) => !defSourceIds.has(n.node_id))?.node_id
+      ?? definitionNodes[definitionNodes.length - 1]?.node_id;
+
+    const entryNewId = entryDefId ? (idMap[entryDefId] ?? null) : null;
+    const exitNewId  = exitDefId  ? (idMap[exitDefId]  ?? null) : null;
+
+    // Re-wire canvas edges that pointed at the BLOCK node
+    const rewiredCanvasEdges: Edge[] = edges
+      .filter((e) => e.source !== blockNodeId && e.target !== blockNodeId)
+      .concat(
+        edges
+          .filter((e) => e.target === blockNodeId && entryNewId)
+          .map((e) => ({ ...e, id: `${e.id}_exp`, target: entryNewId! })),
+        edges
+          .filter((e) => e.source === blockNodeId && exitNewId)
+          .map((e) => ({ ...e, id: `${e.id}_exp`, source: exitNewId! })),
+      );
+
+    set({
+      nodes: [...nodes.filter((n) => n.id !== blockNodeId), ...expandedNodes],
+      edges: [...rewiredCanvasEdges, ...expandedEdges],
+      selectedNodeId: null,
+    });
+    get().saveToHistory();
   },
 
   autoLayout: () => {
