@@ -1,4 +1,4 @@
-import { Box, Button, Divider, IconButton, InputBase, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Divider, IconButton, InputBase, MenuItem, Select, Tooltip, Typography } from '@mui/material';
 import { useRef, useState } from 'react';
 import {
   Add as NewIcon,
@@ -19,6 +19,15 @@ import {
   EditOutlined as EditIcon,
   ContentPaste as ImportScriptIcon,
 } from '@mui/icons-material';
+
+export type ReplaySpeed = 'slow' | 'normal' | 'fast' | 'instant';
+
+export const SPEED_DELAY_MS: Record<ReplaySpeed, number> = {
+  slow:    1500,
+  normal:  500,
+  fast:    150,
+  instant: 0,
+};
 
 interface WorkflowToolbarProps {
   workflowName: string;
@@ -47,6 +56,8 @@ interface WorkflowToolbarProps {
   onImportBlock: () => void;
   onViewCode: () => void;
   onImportScript: () => void;
+  replaySpeed: ReplaySpeed;
+  onReplaySpeedChange: (speed: ReplaySpeed) => void;
 }
 
 const Sep = () => (
@@ -81,6 +92,7 @@ const WorkflowToolbar = ({
   onRecord, onStopRecording, onRun, onUndo, onRedo,
   onZoomIn, onZoomOut, onFitView, onAutoLayout, onSaveAsBlock, onSaveSelectionAsBlock,
   selectedNodeCount, onImportBlock, onViewCode, onImportScript,
+  replaySpeed, onReplaySpeedChange,
 }: WorkflowToolbarProps) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -277,6 +289,33 @@ const WorkflowToolbar = ({
           </Button>
         </Tooltip>
       )}
+
+      {/* Speed selector */}
+      <Tooltip title="Replay speed — delay between each step">
+        <Select
+          value={replaySpeed}
+          onChange={(e) => onReplaySpeedChange(e.target.value as ReplaySpeed)}
+          disabled={status === 'running'}
+          size="small"
+          variant="outlined"
+          sx={{
+            height: 30,
+            fontSize: '0.75rem',
+            color: '#A0A0B4',
+            backgroundColor: '#1a1a1a',
+            '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2a2a2a' },
+            '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#3a3a3a' },
+            '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#48BB78' },
+            '& .MuiSvgIcon-root': { color: '#555' },
+            '& .MuiSelect-select': { py: '5px', pl: 1 },
+          }}
+        >
+          <MenuItem value="slow"    sx={{ fontSize: '0.78rem' }}>🐢 Slow</MenuItem>
+          <MenuItem value="normal"  sx={{ fontSize: '0.78rem' }}>▶ Normal</MenuItem>
+          <MenuItem value="fast"    sx={{ fontSize: '0.78rem' }}>⚡ Fast</MenuItem>
+          <MenuItem value="instant" sx={{ fontSize: '0.78rem' }}>⚡⚡ Instant</MenuItem>
+        </Select>
+      </Tooltip>
 
       {/* Run */}
       <Tooltip title="Run Workflow">

@@ -429,8 +429,10 @@ async def execute_workflow(
     db.refresh(workflow_run)
     
     try:
-        # Get URL from request body if provided
+        # Get URL and speed params from request body
         url = request_body.get("url") if request_body else None
+        step_delay_ms = int((request_body or {}).get("step_delay_ms", 0))
+        step_delay_ms = max(0, min(step_delay_ms, 10000))  # clamp 0–10 s
         print(f"\n{'='*80}")
         print(f"[EXECUTE] Starting workflow execution")
         print(f"[EXECUTE] Workflow ID: {workflow_id}")
@@ -508,11 +510,11 @@ async def execute_workflow(
                     nodes=nodes_data,
                     edges=edges_data,
                     inputs={},
-                    run_id=run_id
+                    run_id=run_id,
+                    step_delay_ms=step_delay_ms,
                 )
             
             print(f"[EXECUTE] Calling executor.execute() via asyncio.to_thread...")
-            # Use asyncio.to_thread to properly isolate sync code from async context
             result = await asyncio.to_thread(run_sync_executor)
             print(f"[EXECUTE] Execution completed. Result keys: {result.keys() if result else 'None'}")
         else:
@@ -522,7 +524,8 @@ async def execute_workflow(
                 nodes=nodes_data,
                 edges=edges_data,
                 inputs={},
-                run_id=run_id
+                run_id=run_id,
+                step_delay_ms=step_delay_ms,
             )
         
         # Update workflow run with results

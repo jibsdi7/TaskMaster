@@ -54,9 +54,11 @@ class WorkflowExecutorSync:
         nodes: List[Dict[str, Any]],
         edges: List[Dict[str, Any]],
         inputs: Dict[str, Any] = None,
-        run_id: str = None
+        run_id: str = None,
+        step_delay_ms: int = 0,
     ) -> Dict[str, Any]:
         """Execute workflow synchronously"""
+        self.step_delay_ms = max(0, step_delay_ms)
         print(f"\n[EXECUTOR] Starting execution")
         print(f"[EXECUTOR] Nodes: {len(nodes)}")
         print(f"[EXECUTOR] Edges: {len(edges)}")
@@ -227,6 +229,10 @@ class WorkflowExecutorSync:
             # Execute node
             result = self._execute_node(node, run_id)
             executed_nodes.add(node_id)
+
+            # Inter-node delay for speed control (skip for DELAY nodes)
+            if getattr(self, 'step_delay_ms', 0) > 0 and node.get("node_type") != "DELAY":
+                time.sleep(self.step_delay_ms / 1000)
             
             # Store result in context
             self.execution_context.set_node_result(node_id, result)

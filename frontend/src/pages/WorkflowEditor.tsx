@@ -26,7 +26,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import CheckIcon from '@mui/icons-material/Check';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useReactFlow } from 'reactflow';
-import WorkflowToolbar from '../components/workflow/WorkflowToolbar';
+import WorkflowToolbar, { ReplaySpeed, SPEED_DELAY_MS } from '../components/workflow/WorkflowToolbar';
 import NodePalette from '../components/workflow/NodePalette';
 import WorkflowCanvas from '../components/workflow/WorkflowCanvas';
 import NodeInspector from '../components/workflow/NodeInspector';
@@ -88,6 +88,9 @@ const WorkflowEditor = () => {
   const [savedBlockId, setSavedBlockId] = useState<number | null>(null);
   const [, setSavedBlockNodeId] = useState<string | null>(null);
   const dismantleSnapshot = useRef<{ nodes: any[]; edges: any[] } | null>(null);
+
+  // Replay speed state
+  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>('normal');
 
   // State for Import Script dialog
   const [importScriptOpen, setImportScriptOpen] = useState(false);
@@ -428,10 +431,10 @@ const WorkflowEditor = () => {
     try {
       const token = localStorage.getItem('token');
       setStatus('running');
-      
+
       const response = await axios.post(
         `http://localhost:8000/api/workflows/${workflowId}/execute`,
-        {},
+        { step_delay_ms: SPEED_DELAY_MS[replaySpeed] },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -807,6 +810,8 @@ const WorkflowEditor = () => {
         onImportBlock={handleImportBlock}
         onViewCode={handleViewCode}
         onImportScript={handleImportScript}
+        replaySpeed={replaySpeed}
+        onReplaySpeedChange={setReplaySpeed}
       />
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <NodePalette />
