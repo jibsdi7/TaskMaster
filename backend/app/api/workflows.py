@@ -535,15 +535,19 @@ async def execute_workflow(
         workflow_run.duration_seconds = result.get("duration_seconds")
         workflow_run.result = result.get("result", {})
         
-        # Save logs
+        # Save logs — persist all executor-enriched fields (duration_ms, node_status,
+        # node_type, node_label, …) into meta_data so the executions API can return them.
+        CORE_LOG_KEYS = {"level", "message", "node_id", "timestamp", "screenshot_path", "metadata"}
         for log_data in result.get("logs", []):
+            extra = {k: v for k, v in log_data.items() if k not in CORE_LOG_KEYS}
+            meta = {**log_data.get("metadata", {}), **extra}
             log = models.WorkflowLog(
                 run_id=workflow_run.id,
                 node_id=log_data.get("node_id"),
                 level=log_data.get("level", "INFO"),
                 message=log_data.get("message", ""),
                 screenshot_path=log_data.get("screenshot_path"),
-                meta_data=log_data.get("metadata", {})
+                meta_data=meta
             )
             db.add(log)
         

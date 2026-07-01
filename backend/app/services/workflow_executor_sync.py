@@ -257,41 +257,51 @@ class WorkflowExecutorSync:
         """Execute a single node"""
         node_id = node.get("node_id")
         node_type = node.get("node_type")
+        node_label = node.get("label", "")
         config = node.get("config", {})
-        
-        self._log("INFO", f"Executing node: {node.get('label')}", node_id)
-        
+
+        node_start = time.time()
+        self._log("INFO", f"Executing node: {node_label}", node_id,
+                  node_type=node_type, node_label=node_label)
+
         try:
             result = None
-            
+
             if node_type == NodeType.OPEN_URL.value:
                 result = self._execute_navigate(config)
-            
+
             elif node_type == NodeType.CLICK.value:
                 result = self._execute_click(config)
-            
+
             elif node_type == NodeType.TYPE.value:
                 result = self._execute_type(config)
-            
+
             elif node_type == NodeType.SELECT.value:
                 result = self._execute_select(config)
-            
+
             elif node_type == NodeType.DELAY.value:
                 result = self._execute_delay(config)
-            
+
             else:
-                self._log("WARNING", f"Unknown node type: {node_type}", node_id)
-            
+                self._log("WARNING", f"Unknown node type: {node_type}", node_id,
+                          node_type=node_type, node_label=node_label)
+
             # Capture screenshot if enabled
             if config.get("screenshot", False):
                 self._capture_screenshot(node_id, run_id)
-            
-            self._log("INFO", f"Node executed successfully: {node.get('label')}", node_id)
-            
+
+            duration_ms = round((time.time() - node_start) * 1000)
+            self._log("INFO", f"Node executed successfully: {node_label}", node_id,
+                      node_type=node_type, node_label=node_label,
+                      duration_ms=duration_ms, node_status="passed")
+
             return result
-            
+
         except Exception as e:
-            self._log("ERROR", f"Node execution failed: {str(e)}", node_id)
+            duration_ms = round((time.time() - node_start) * 1000)
+            self._log("ERROR", f"Node execution failed: {str(e)}", node_id,
+                      node_type=node_type, node_label=node_label,
+                      duration_ms=duration_ms, node_status="failed")
             # Capture error screenshot
             self._capture_screenshot(f"{node_id}_error", run_id)
             raise
@@ -467,13 +477,15 @@ class WorkflowExecutorSync:
             "timestamp": datetime.utcnow().isoformat()
         })
     
-    def _log(self, level: str, message: str, node_id: str = None):
+    def _log(self, level: str, message: str, node_id: str = None, **kwargs):
         """Add log entry"""
-        self.logs.append({
+        entry = {
             "level": level,
             "message": message,
             "node_id": node_id,
-            "timestamp": datetime.utcnow().isoformat()
-        })
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        entry.update(kwargs)
+        self.logs.append(entry)
 
 # Made with Bob

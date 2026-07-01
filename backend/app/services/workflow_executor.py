@@ -357,67 +357,78 @@ class WorkflowExecutor:
         run_id: str
     ) -> Any:
         """Execute a single node"""
+        import time as _time
         node_id = node.get("node_id")
         node_type = node.get("node_type")
+        node_label = node.get("label", "")
         config = node.get("config", {})
-        
-        self._log("INFO", f"Executing node: {node.get('label')}", node_id)
-        
+
+        node_start = _time.time()
+        self._log("INFO", f"Executing node: {node_label}", node_id,
+                  node_type=node_type, node_label=node_label)
+
         try:
             result = None
-            
+
             if node_type == NodeType.OPEN_URL.value:
                 result = await self._execute_navigate(config)
-            
+
             elif node_type == NodeType.CLICK.value:
                 result = await self._execute_click(config)
-            
+
             elif node_type == NodeType.TYPE.value:
                 result = await self._execute_type(config)
-            
+
             elif node_type == NodeType.SELECT.value:
                 result = await self._execute_select(config)
-            
+
             elif node_type == NodeType.HOVER.value:
                 result = await self._execute_hover(config)
-            
+
             elif node_type == NodeType.UPLOAD_FILE.value:
                 result = await self._execute_upload(config)
-            
+
             elif node_type == NodeType.DELAY.value:
                 result = await self._execute_delay(config)
-            
+
             elif node_type == NodeType.BACK.value:
                 result = await self._execute_back()
-            
+
             elif node_type == NodeType.REFRESH.value:
                 result = await self._execute_refresh()
-            
+
             elif node_type == NodeType.VARIABLE.value:
                 result = await self._execute_variable(config)
-            
+
             elif node_type == NodeType.API_REQUEST.value:
                 result = await self._execute_api_request(config)
-            
+
             elif node_type == NodeType.IF_CONDITION.value:
                 result = {"condition_node": True}
-            
+
             elif node_type == NodeType.LOOP.value:
                 result = {"loop_node": True}
-            
+
             else:
-                self._log("WARNING", f"Unknown node type: {node_type}", node_id)
-            
+                self._log("WARNING", f"Unknown node type: {node_type}", node_id,
+                          node_type=node_type, node_label=node_label)
+
             # Capture screenshot if enabled
             if config.get("screenshot", False):
                 await self._capture_screenshot(node_id, run_id)
-            
-            self._log("INFO", f"Node executed successfully: {node.get('label')}", node_id)
-            
+
+            duration_ms = round((_time.time() - node_start) * 1000)
+            self._log("INFO", f"Node executed successfully: {node_label}", node_id,
+                      node_type=node_type, node_label=node_label,
+                      duration_ms=duration_ms, node_status="passed")
+
             return result
-            
+
         except Exception as e:
-            self._log("ERROR", f"Node execution failed: {str(e)}", node_id)
+            duration_ms = round((_time.time() - node_start) * 1000)
+            self._log("ERROR", f"Node execution failed: {str(e)}", node_id,
+                      node_type=node_type, node_label=node_label,
+                      duration_ms=duration_ms, node_status="failed")
             # Capture error screenshot
             await self._capture_screenshot(f"{node_id}_error", run_id)
             raise
@@ -566,13 +577,15 @@ class WorkflowExecutor:
             "timestamp": datetime.utcnow().isoformat()
         })
     
-    def _log(self, level: str, message: str, node_id: str = None):
+    def _log(self, level: str, message: str, node_id: str = None, **kwargs):
         """Add log entry"""
-        self.logs.append({
+        entry = {
             "level": level,
             "message": message,
             "node_id": node_id,
-            "timestamp": datetime.utcnow().isoformat()
-        })
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        entry.update(kwargs)
+        self.logs.append(entry)
 
 # Made with Bob

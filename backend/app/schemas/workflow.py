@@ -151,7 +151,10 @@ class WorkflowLogResponse(BaseModel):
     level: str
     message: str
     screenshot_path: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    # Use 'meta_data' to exactly match the SQLAlchemy ORM attribute name.
+    # The ORM Base class also has a built-in '.metadata' (MetaData()) attr
+    # which causes a validation clash when using 'metadata' as field name.
+    meta_data: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
     class Config:
