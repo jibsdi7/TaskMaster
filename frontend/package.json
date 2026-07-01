@@ -1,7 +1,7 @@
 {
-  "name": "taskmaster-frontend",
+  "name": "flow-weaver",
   "version": "1.0.0",
-  "description": "TaskMaster - User Journey Recorder & Workflow Automation Platform",
+  "description": "Flow Weaver — Visual workflow automation platform",
   "type": "module",
   "scripts": {
     "dev": "vite",
