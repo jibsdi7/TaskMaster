@@ -96,46 +96,54 @@ class ScriptGenerator:
             node_type = node.get("node_type")
             config = node.get("config", {})
             label = node.get("label", "")
-            
+
+            # Block section header (injected by _resolve_block_nodes)
+            if include_comments and node.get("_block_start"):
+                lines.append(f"        # ── Block: {node['_block_start']} ──")
+
             if include_comments and label:
                 lines.append(f"        # {label}")
-            
+
             if node_type == NodeType.OPEN_URL.value:
                 url = config.get("url", "")
                 lines.append(f'        await page.goto("{url}")')
-            
+
             elif node_type == NodeType.CLICK.value:
                 selector = config.get("selector", "")
                 lines.append(f'        await page.get_by_text("{selector}").click()')
-            
+
             elif node_type == NodeType.TYPE.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
                 lines.append(f'        await page.get_by_label("{selector}").fill("{value}")')
-            
+
             elif node_type == NodeType.SELECT.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
                 lines.append(f'        await page.locator("{selector}").select_option("{value}")')
-            
+
             elif node_type == NodeType.HOVER.value:
                 selector = config.get("selector", "")
                 lines.append(f'        await page.locator("{selector}").hover()')
-            
+
             elif node_type == NodeType.UPLOAD_FILE.value:
                 selector = config.get("selector", "")
                 lines.append(f'        await page.locator("{selector}").set_input_files("path/to/file")')
-            
+
             elif node_type == NodeType.DELAY.value:
                 duration = config.get("duration", 1000) / 1000
                 lines.append(f"        await page.wait_for_timeout({int(duration * 1000)})")
-            
+
             elif node_type == NodeType.BACK.value:
                 lines.append("        await page.go_back()")
-            
+
             elif node_type == NodeType.REFRESH.value:
                 lines.append("        await page.reload()")
-            
+
+            elif node_type == NodeType.BLOCK.value or node_type == "_BLOCK_COMMENT":
+                # Unresolved BLOCK node — emit a clear placeholder
+                lines.append(f'        # TODO: inline block "{label}" here')
+
             lines.append("")
         
         # Footer
@@ -173,46 +181,52 @@ class ScriptGenerator:
             node_type = node.get("node_type")
             config = node.get("config", {})
             label = node.get("label", "")
-            
+
+            if include_comments and node.get("_block_start"):
+                lines.append(f"  // ── Block: {node['_block_start']} ──")
+
             if include_comments and label:
                 lines.append(f"  // {label}")
-            
+
             if node_type == NodeType.OPEN_URL.value:
                 url = config.get("url", "")
                 lines.append(f"  await page.goto('{url}');")
-            
+
             elif node_type == NodeType.CLICK.value:
                 selector = config.get("selector", "")
                 lines.append(f"  await page.getByText('{selector}').click();")
-            
+
             elif node_type == NodeType.TYPE.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
                 lines.append(f"  await page.getByLabel('{selector}').fill('{value}');")
-            
+
             elif node_type == NodeType.SELECT.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
                 lines.append(f"  await page.locator('{selector}').selectOption('{value}');")
-            
+
             elif node_type == NodeType.HOVER.value:
                 selector = config.get("selector", "")
                 lines.append(f"  await page.locator('{selector}').hover();")
-            
+
             elif node_type == NodeType.UPLOAD_FILE.value:
                 selector = config.get("selector", "")
                 lines.append(f"  await page.locator('{selector}').setInputFiles('path/to/file');")
-            
+
             elif node_type == NodeType.DELAY.value:
                 duration = config.get("duration", 1000)
                 lines.append(f"  await page.waitForTimeout({duration});")
-            
+
             elif node_type == NodeType.BACK.value:
                 lines.append("  await page.goBack();")
-            
+
             elif node_type == NodeType.REFRESH.value:
                 lines.append("  await page.reload();")
-            
+
+            elif node_type == NodeType.BLOCK.value or node_type == "_BLOCK_COMMENT":
+                lines.append(f"  // TODO: inline block '{label}' here")
+
             lines.append("")
         
         # Footer
@@ -249,46 +263,52 @@ class ScriptGenerator:
             node_type = node.get("node_type")
             config = node.get("config", {})
             label = node.get("label", "")
-            
+
+            if include_comments and node.get("_block_start"):
+                lines.append(f"  // ── Block: {node['_block_start']} ──")
+
             if include_comments and label:
                 lines.append(f"  // {label}")
-            
+
             if node_type == NodeType.OPEN_URL.value:
                 url = config.get("url", "")
                 lines.append(f"  await page.goto('{url}');")
-            
+
             elif node_type == NodeType.CLICK.value:
                 selector = config.get("selector", "")
                 lines.append(f"  await page.getByText('{selector}').click();")
-            
+
             elif node_type == NodeType.TYPE.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
                 lines.append(f"  await page.getByLabel('{selector}').fill('{value}');")
-            
+
             elif node_type == NodeType.SELECT.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
                 lines.append(f"  await page.locator('{selector}').selectOption('{value}');")
-            
+
             elif node_type == NodeType.HOVER.value:
                 selector = config.get("selector", "")
                 lines.append(f"  await page.locator('{selector}').hover();")
-            
+
             elif node_type == NodeType.UPLOAD_FILE.value:
                 selector = config.get("selector", "")
                 lines.append(f"  await page.locator('{selector}').setInputFiles('path/to/file');")
-            
+
             elif node_type == NodeType.DELAY.value:
                 duration = config.get("duration", 1000)
                 lines.append(f"  await page.waitForTimeout({duration});")
-            
+
             elif node_type == NodeType.BACK.value:
                 lines.append("  await page.goBack();")
-            
+
             elif node_type == NodeType.REFRESH.value:
                 lines.append("  await page.reload();")
-            
+
+            elif node_type == NodeType.BLOCK.value or node_type == "_BLOCK_COMMENT":
+                lines.append(f"  // TODO: inline block '{label}' here")
+
             lines.append("")
         
         # Footer
