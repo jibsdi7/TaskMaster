@@ -21,13 +21,13 @@ interface WorkflowLog {
   timestamp: string;
   created_at?: string;
   // enriched fields — present as top-level keys when logs come from the
-  // inline execute response, and nested under metadata when read back via
-  // the /executions/ API (WorkflowLogResponse schema).
+  // inline execute response, and nested under meta_data when read back via
+  // the /executions/ API (WorkflowLogResponse schema field: meta_data).
   node_type?: string;
   node_label?: string;
   duration_ms?: number;
   node_status?: 'passed' | 'failed';
-  metadata?: {
+  meta_data?: {
     node_type?: string;
     node_label?: string;
     duration_ms?: number;
@@ -60,7 +60,7 @@ function toUTC(iso: string): string {
  * and returned via /executions/ API they are nested under `metadata`.
  */
 function logField<T>(log: WorkflowLog, key: keyof WorkflowLog & string): T | undefined {
-  return (log[key] ?? log.metadata?.[key]) as T | undefined;
+  return (log[key] ?? log.meta_data?.[key]) as T | undefined;
 }
 
 /** Use log.timestamp when coming from in-memory logs, created_at from DB */
