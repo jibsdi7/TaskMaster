@@ -431,8 +431,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
     const NODE_WIDTH  = 220;  // approximate rendered width of CustomNode
     const NODE_HEIGHT = 100;  // approximate rendered height
-    const H_GAP = 80;         // horizontal gap between nodes in the same rank
-    const V_GAP = 100;        // vertical gap between ranks
+    const H_GAP = 120;        // horizontal gap between nodes in the same rank
+    const V_GAP = 160;        // vertical gap between ranks
 
     // ── 1. Build adjacency and in-degree maps ──────────────────────────────
     const inDegree: Record<string, number>   = {};
@@ -448,15 +448,23 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
 
     // ── 2. Kahn's BFS → assign rank (layer) to each node ──────────────────
+    // Root nodes (in-degree 0) must have their rank written explicitly here.
+    // Without this, rank[id] stays undefined and they fall into the floating
+    // bucket below, appearing after all other nodes.
     const rank: Record<string, number> = {};
     const queue: string[] = [];
-    nodes.forEach((n) => { if (inDegree[n.id] === 0) queue.push(n.id); });
+    nodes.forEach((n) => {
+      if (inDegree[n.id] === 0) {
+        rank[n.id] = 0;
+        queue.push(n.id);
+      }
+    });
 
     const workDeg = { ...inDegree };
     let head = 0;
     while (head < queue.length) {
       const id = queue[head++];
-      const r = rank[id] ?? 0;
+      const r = rank[id];  // always defined now
       children[id].forEach((child) => {
         rank[child] = Math.max(rank[child] ?? 0, r + 1);
         workDeg[child]--;
