@@ -98,6 +98,10 @@ const WorkflowEditor = () => {
   const [importScriptName, setImportScriptName] = useState('');
   const [importScriptLoading, setImportScriptLoading] = useState(false);
 
+  // State for execution result dialog
+  const [execResultOpen, setExecResultOpen] = useState(false);
+  const [execResult, setExecResult] = useState<{ runId: string; status: string; duration: number | null } | null>(null);
+
   // State for Import Block dialog
   const [importBlockOpen, setImportBlockOpen] = useState(false);
   const [importBlocks, setImportBlocks] = useState<{ id: number; name: string; description: string; current_version: number }[]>([]);
@@ -439,29 +443,14 @@ const WorkflowEditor = () => {
       );
 
       setStatus('idle');
-      
-      // Show success message with execution details
-      const runId = response.data.run_id;
+
+      const runId    = response.data.run_id;
       const statusMsg = response.data.status;
-      const duration = response.data.duration_seconds;
-      
-      if (statusMsg === 'completed') {
-        toast.success(`Workflow executed successfully! Duration: ${duration?.toFixed(2) || 0}s`);
-      } else if (statusMsg === 'failed') {
-        toast.warning(`Workflow execution failed. Check backend logs for details.`);
-      } else {
-        toast.success('Workflow execution started. Check browser window for automation.');
-      }
-      
-      // Try to navigate to execution details (will work if database is connected)
-      if (runId) {
-        // Don't navigate immediately - give user option
-        setTimeout(() => {
-          if (window.confirm('View execution details? (Requires database connection)')) {
-            navigate(`/executions/${runId}`);
-          }
-        }, 1000);
-      }
+      const duration  = response.data.duration_seconds;
+
+      // Show stylised execution result dialog
+      setExecResult({ runId, status: statusMsg, duration });
+      setExecResultOpen(true);
     } catch (error: any) {
       console.error('Failed to run workflow:', error);
       toast.error(error.response?.data?.detail || 'Failed to run workflow');
@@ -1179,6 +1168,142 @@ const WorkflowEditor = () => {
             startIcon={importScriptLoading ? <CircularProgress size={14} color="inherit" /> : undefined}
           >
             {importScriptLoading ? 'Importing…' : 'Import'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Execution Result Dialog ─────────────────────────────────── */}
+      <Dialog
+        open={execResultOpen}
+        onClose={() => setExecResultOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: '#1c1c1c',
+            border: '1px solid #2a2a2a',
+            borderRadius: '12px',
+            overflow: 'hidden',
+          },
+        }}
+      >
+        {/* Coloured header band */}
+        <Box
+          sx={{
+            px: 3, py: 2.5,
+            backgroundColor: execResult?.status === 'completed'
+              ? 'rgba(72,187,120,0.12)'
+              : execResult?.status === 'failed'
+              ? 'rgba(245,101,101,0.12)'
+              : 'rgba(91,124,246,0.12)',
+            borderBottom: '1px solid',
+            borderColor: execResult?.status === 'completed'
+              ? 'rgba(72,187,120,0.25)'
+              : execResult?.status === 'failed'
+              ? 'rgba(245,101,101,0.25)'
+              : 'rgba(91,124,246,0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+          }}
+        >
+          {/* Status dot */}
+          <Box
+            sx={{
+              width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+              backgroundColor: execResult?.status === 'completed'
+                ? '#48BB78'
+                : execResult?.status === 'failed'
+                ? '#F56565'
+                : '#5B7CF6',
+            }}
+          />
+          <Typography variant="body1" sx={{ fontWeight: 700, color: '#E0E0F0', fontSize: '0.95rem' }}>
+            {execResult?.status === 'completed'
+              ? 'Workflow Completed'
+              : execResult?.status === 'failed'
+              ? 'Workflow Failed'
+              : 'Execution Finished'}
+          </Typography>
+        </Box>
+
+        <DialogContent sx={{ px: 3, pt: 2.5, pb: 1 }}>
+          {/* Duration */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10 }}>
+              Duration
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#E0E0E0', fontWeight: 600, fontFamily: '"Fira Code", monospace' }}>
+              {execResult?.duration != null ? `${execResult.duration.toFixed(2)}s` : '—'}
+            </Typography>
+          </Box>
+
+          {/* Run ID */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
+            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10 }}>
+              Run ID
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{
+                color: '#555',
+                fontFamily: '"Fira Code", monospace',
+                fontSize: 11,
+                maxWidth: 180,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {execResult?.runId ?? '—'}
+            </Typography>
+          </Box>
+
+          {/* Failed message hint */}
+          {execResult?.status === 'failed' && (
+            <Box
+              sx={{
+                p: 1.5, borderRadius: '7px',
+                backgroundColor: 'rgba(245,101,101,0.08)',
+                border: '1px solid rgba(245,101,101,0.2)',
+                mb: 2,
+              }}
+            >
+              <Typography variant="caption" sx={{ color: '#F56565' }}>
+                Execution failed. Check the backend logs for details.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 0, gap: 1 }}>
+          <Button
+            onClick={() => setExecResultOpen(false)}
+            size="small"
+            sx={{
+              color: '#666', textTransform: 'none', fontSize: '0.82rem',
+              '&:hover': { color: '#A0A0B4', backgroundColor: 'transparent' },
+            }}
+          >
+            Dismiss
+          </Button>
+          <Button
+            variant="contained"
+            size="small"
+            disabled={!execResult?.runId}
+            onClick={() => {
+              setExecResultOpen(false);
+              navigate(`/executions/${execResult!.runId}`);
+            }}
+            sx={{
+              textTransform: 'none',
+              fontSize: '0.82rem',
+              backgroundColor: '#5B7CF6',
+              '&:hover': { backgroundColor: '#4a6be0' },
+              '&.Mui-disabled': { backgroundColor: '#242424', color: '#333' },
+            }}
+          >
+            View Execution Details →
           </Button>
         </DialogActions>
       </Dialog>
