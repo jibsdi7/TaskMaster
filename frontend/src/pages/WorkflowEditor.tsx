@@ -99,7 +99,6 @@ const WorkflowEditor = () => {
   const [importBlockOpen, setImportBlockOpen] = useState(false);
   const [importBlocks, setImportBlocks] = useState<{ id: number; name: string; description: string; current_version: number }[]>([]);
   const [importBlocksLoading, setImportBlocksLoading] = useState(false);
-  const [importingBlockId, setImportingBlockId] = useState<number | null>(null);
 
   // State for code viewer dialog
   const [codeDialogOpen, setCodeDialogOpen] = useState(false);
@@ -756,61 +755,27 @@ const WorkflowEditor = () => {
     }
   };
 
-  const handleImportBlockConfirm = async (blockId: number) => {
-    setImportingBlockId(blockId);
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:8000/api/blocks/${blockId}/definition`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) throw new Error('Failed to load block definition');
-      const def = await res.json();
+  const handleImportBlockConfirm = (blockId: number, blockName: string) => {
+    // Place the BLOCK node offset from existing nodes so it doesn't overlap
+    const existingCount = nodes.length;
+    const x = 80 + (existingCount % 4) * 300;
+    const y = 80 + Math.floor(existingCount / 4) * 200;
 
-      // Calculate offset so pasted nodes don't overlap existing ones
-      const existingCount = nodes.length;
-      const offsetX = 80 + (existingCount % 4) * 280;
-      const offsetY = 80 + Math.floor(existingCount / 4) * 160;
+    const newNode = {
+      id: `block_${blockId}_${Date.now()}`,
+      type: 'custom' as const,
+      position: { x, y },
+      data: {
+        label: blockName,
+        nodeType: 'BLOCK',
+        config: { block_id: blockId },
+        status: 'idle' as const,
+      },
+    };
 
-      // Build unique ID prefix to avoid collisions with existing nodes
-      const prefix = `imp_${blockId}_${Date.now()}_`;
-
-      const newNodes = (def.nodes || []).map((n: any) => ({
-        id: prefix + n.node_id,
-        type: 'custom',
-        position: {
-          x: (n.position_x ?? 0) + offsetX,
-          y: (n.position_y ?? 0) + offsetY,
-        },
-        data: {
-          label: n.label,
-          nodeType: n.node_type,
-          config: n.config || {},
-          status: 'idle' as const,
-        },
-      }));
-
-      const newEdges = (def.edges || []).map((e: any) => ({
-        id: prefix + e.edge_id,
-        source: prefix + e.source_node_id,
-        target: prefix + e.target_node_id,
-        type: 'smoothstep',
-        animated: true,
-        style: { stroke: '#1976d2', strokeWidth: 2 },
-      }));
-
-      // Merge into the current canvas
-      useWorkflowStore.setState(state => ({
-        nodes: [...state.nodes, ...newNodes],
-        edges: [...state.edges, ...newEdges],
-      }));
-
-      toast.success(`Imported "${def.block_name}" — ${newNodes.length} nodes added`);
-      setImportBlockOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to import block');
-    } finally {
-      setImportingBlockId(null);
-    }
+    useWorkflowStore.getState().addNode(newNode);
+    toast.success(`"${blockName}" added — select it and open the inspector to dismantle`);
+    setImportBlockOpen(false);
   };
 
   return (
@@ -981,8 +946,7 @@ const WorkflowEditor = () => {
               {importBlocks.map((b, i) => (
                 <ListItemButton
                   key={b.id}
-                  onClick={() => handleImportBlockConfirm(b.id)}
-                  disabled={importingBlockId === b.id}
+                  onClick={() => handleImportBlockConfirm(b.id, b.name)}
                   sx={{
                     borderBottom: i < importBlocks.length - 1 ? '1px solid #222' : 'none',
                     py: 1.25, px: 2,
@@ -1005,9 +969,6 @@ const WorkflowEditor = () => {
                       </Typography>
                     }
                   />
-                  {importingBlockId === b.id && (
-                    <CircularProgress size={16} sx={{ color: '#5B7CF6', ml: 1 }} />
-                  )}
                 </ListItemButton>
               ))}
             </List>
