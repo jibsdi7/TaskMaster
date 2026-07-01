@@ -171,10 +171,26 @@ class WorkflowExecutor:
         nodes: List[Dict[str, Any]],
         edges: List[Dict[str, Any]]
     ) -> List[str]:
-        """Find nodes with no incoming edges"""
-        all_nodes = {node.get("node_id") for node in nodes}
+        """Find true entry nodes — nodes with no incoming edge that are also
+        connected forward into the graph (have at least one outgoing edge), OR
+        are the only node in the workflow.
+
+        Nodes with no incoming AND no outgoing edges are disconnected orphans
+        produced when the user deletes a connecting edge. They must be skipped,
+        otherwise the executor treats every orphan as an independent start point
+        and executes the full workflow regardless of missing connections.
+        """
+        all_nodes    = {node.get("node_id") for node in nodes}
         target_nodes = {edge.get("target_node_id") for edge in edges}
-        return list(all_nodes - target_nodes)
+        source_nodes = {edge.get("source_node_id")  for edge in edges}
+
+        no_incoming = all_nodes - target_nodes
+
+        if len(all_nodes) == 1:
+            return list(no_incoming)
+
+        real_entries = [nid for nid in no_incoming if nid in source_nodes]
+        return real_entries if real_entries else list(no_incoming)
     
     async def _execute_from_nodes(
         self,
