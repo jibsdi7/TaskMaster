@@ -171,26 +171,37 @@ class WorkflowExecutor:
         nodes: List[Dict[str, Any]],
         edges: List[Dict[str, Any]]
     ) -> List[str]:
-        """Find true entry nodes — nodes with no incoming edge that are also
-        connected forward into the graph (have at least one outgoing edge), OR
-        are the only node in the workflow.
+        """Return exactly ONE true root node — the topmost-leftmost node that
+        has no incoming edge.
 
-        Nodes with no incoming AND no outgoing edges are disconnected orphans
-        produced when the user deletes a connecting edge. They must be skipped,
-        otherwise the executor treats every orphan as an independent start point
-        and executes the full workflow regardless of missing connections.
+        When a user deletes a connecting edge (e.g. node_2->node_3), node_3
+        loses its incoming edge and looks like a second root. Returning both
+        would cause the executor to run two independent chains. Instead we
+        always pick a single root: the OPEN_URL node if one exists among the
+        candidates, otherwise the node with the smallest canvas position
+        (position_x + position_y). The executor then follows edges from that
+        single root and raises an error when it hits a dead-end.
         """
-        all_nodes    = {node.get("node_id") for node in nodes}
         target_nodes = {edge.get("target_node_id") for edge in edges}
-        source_nodes = {edge.get("source_node_id")  for edge in edges}
 
-        no_incoming = all_nodes - target_nodes
+        # Candidates: nodes with no incoming edge
+        candidates = [n for n in nodes if n.get("node_id") not in target_nodes]
 
-        if len(all_nodes) == 1:
-            return list(no_incoming)
+        if not candidates:
+            return [nodes[0].get("node_id")] if nodes else []
 
-        real_entries = [nid for nid in no_incoming if nid in source_nodes]
-        return real_entries if real_entries else list(no_incoming)
+        if len(candidates) == 1:
+            return [candidates[0].get("node_id")]
+
+        # Multiple candidates — prefer OPEN_URL node first
+        open_url_candidates = [n for n in candidates
+                               if n.get("node_type") == "OPEN_URL"]
+        if open_url_candidates:
+            return [open_url_candidates[0].get("node_id")]
+
+        # Otherwise pick the topmost-leftmost by canvas position
+        candidates.sort(key=lambda n: (n.get("position_x", 0) + n.get("position_y", 0)))
+        return [candidates[0].get("node_id")]
     
     async def _execute_from_nodes(
         self,
@@ -237,26 +248,46 @@ class WorkflowExecutor:
     ):
         """Execute a single node and its downstream flow"""
         node_id = node.get("node_id")
-        
+
         # Execute node with retry logic
         result = await self._execute_node_with_retry(node, run_id)
         executed_nodes.add(node_id)
-        
+
         # Store result in context
         self.execution_context.set_node_result(node_id, result)
-        
+
         # Determine next nodes based on node type and result
         next_nodes = await self._determine_next_nodes(node, graph, result)
-        
+
         # Check if next nodes should be executed in parallel
         config = node.get("config", {})
         parallel_next = config.get("parallelExecution", False)
-        
-        # Execute next nodes
+
         if next_nodes:
             await self._execute_from_nodes(
                 next_nodes, nodes, graph, executed_nodes, run_id, parallel=parallel_next
             )
+        else:
+            # Dead-end check: if unexecuted nodes remain, a connecting edge is missing
+            all_node_ids = {n.get("node_id") for n in nodes}
+            unexecuted = all_node_ids - executed_nodes
+            if unexecuted:
+                label = node.get("label", node_id)
+                self._log("ERROR",
+                    f"Broken workflow: node '{label}' has no outgoing edge "
+                    f"but {len(unexecuted)} node(s) are unreachable: "
+                    f"{', '.join(sorted(str(x) for x in unexecuted))}",
+                    node_id,
+                    node_type=node.get("node_type"),
+                    node_label=label,
+                    node_status="failed"
+                )
+                raise RuntimeError(
+                    f"Missing edge after '{label}' — "
+                    f"{len(unexecuted)} node(s) unreachable: "
+                    f"{', '.join(sorted(str(x) for x in unexecuted))}. "
+                    f"Please reconnect the workflow in the editor."
+                )
     
     async def _execute_node_with_retry(
         self,

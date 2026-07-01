@@ -447,7 +447,9 @@ async def execute_workflow(
                 "node_type": node.node_type.value,
                 "label": node.label,
                 "config": node.config or {},
-                "metadata": node.meta_data or {}
+                "metadata": node.meta_data or {},
+                "position_x": node.position_x or 0,
+                "position_y": node.position_y or 0,
             }
             for node in workflow.nodes
         ]

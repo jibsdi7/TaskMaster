@@ -202,34 +202,39 @@ class WorkflowExecutorSync:
         nodes: List[Dict[str, Any]],
         edges: List[Dict[str, Any]]
     ) -> List[str]:
-        """Find true entry nodes — nodes with no incoming edge that are also
-        connected forward into the graph (have at least one outgoing edge), OR
-        are the only node in the workflow.
+        """Return exactly ONE true root node — the topmost-leftmost node that
+        has no incoming edge.
 
-        Nodes with no incoming AND no outgoing edges are disconnected orphans
-        produced when the user deletes a connecting edge. They must be skipped,
-        otherwise the executor treats every orphan as an independent start point
-        and executes the full workflow regardless of missing connections.
+        When a user deletes a connecting edge (e.g. node_2->node_3), node_3
+        loses its incoming edge and looks like a second root. Returning both
+        node_0 and node_3 would cause the executor to run two independent
+        chains. Instead we always pick a single root: the OPEN_URL node if
+        one exists among the candidates, otherwise the node with the smallest
+        canvas position (position_x + position_y). The executor then follows
+        edges from that single root and raises an error when it hits a dead-end.
         """
-        all_nodes     = {node.get("node_id") for node in nodes}
-        target_nodes  = {edge.get("target_node_id")  for edge in edges}
-        source_nodes  = {edge.get("source_node_id")  for edge in edges}
+        target_nodes = {edge.get("target_node_id") for edge in edges}
+        node_map     = {n.get("node_id"): n for n in nodes}
 
-        no_incoming = all_nodes - target_nodes
+        # Candidates: nodes with no incoming edge
+        candidates = [n for n in nodes if n.get("node_id") not in target_nodes]
 
-        # If only one node exists it has no edges — still a valid entry
-        if len(all_nodes) == 1:
-            return list(no_incoming)
+        if not candidates:
+            # Every node has an incoming edge — cycle or empty; fall back to first node
+            return [nodes[0].get("node_id")] if nodes else []
 
-        # Keep only nodes that have at least one outgoing edge (are real starts)
-        # A node with no incoming AND no outgoing is a completely isolated orphan
-        real_entries = [nid for nid in no_incoming if nid in source_nodes]
+        if len(candidates) == 1:
+            return [candidates[0].get("node_id")]
 
-        if real_entries:
-            return real_entries
+        # Multiple candidates — prefer OPEN_URL node first
+        open_url_candidates = [n for n in candidates
+                               if n.get("node_type") == "OPEN_URL"]
+        if open_url_candidates:
+            return [open_url_candidates[0].get("node_id")]
 
-        # Fallback: if every node is somehow isolated, return all with no incoming
-        return list(no_incoming)
+        # Otherwise pick the topmost-leftmost by canvas position
+        candidates.sort(key=lambda n: (n.get("position_x", 0) + n.get("position_y", 0)))
+        return [candidates[0].get("node_id")]
     
     def _execute_from_nodes(
         self,
@@ -240,27 +245,53 @@ class WorkflowExecutorSync:
         run_id: str
     ):
         """Execute workflow from given nodes"""
+        # Build set of node_ids that have NO outgoing edges at all in the graph
+        # (used to distinguish intentional terminal nodes from dead-ends)
+        all_node_ids = {n.get("node_id") for n in nodes}
+
         for node_id in node_ids:
             if node_id in executed_nodes:
                 continue
-            
+
             node = next((n for n in nodes if n.get("node_id") == node_id), None)
             if not node:
                 continue
-            
+
             # Execute node
             result = self._execute_node(node, run_id)
             executed_nodes.add(node_id)
-            
+
             # Store result in context
             self.execution_context.set_node_result(node_id, result)
-            
+
             # Determine next nodes
             next_nodes = self._determine_next_nodes(node, graph, result)
-            
-            # Execute next nodes
+
             if next_nodes:
                 self._execute_from_nodes(next_nodes, nodes, graph, executed_nodes, run_id)
+            else:
+                # No outgoing edges from this node.
+                # If there are still unexecuted nodes downstream that are
+                # reachable via other entry-chains, this is a dead-end caused
+                # by a missing edge — raise an error.
+                unexecuted = all_node_ids - executed_nodes
+                if unexecuted:
+                    label = node.get("label", node_id)
+                    self._log("ERROR",
+                        f"Broken workflow: node '{label}' has no outgoing edge "
+                        f"but {len(unexecuted)} node(s) are unreachable: "
+                        f"{', '.join(sorted(unexecuted))}",
+                        node_id,
+                        node_type=node.get("node_type"),
+                        node_label=label,
+                        node_status="failed"
+                    )
+                    raise RuntimeError(
+                        f"Missing edge after '{label}' — "
+                        f"{len(unexecuted)} node(s) unreachable: "
+                        f"{', '.join(sorted(unexecuted))}. "
+                        f"Please reconnect the workflow in the editor."
+                    )
     
     def _determine_next_nodes(
         self,
