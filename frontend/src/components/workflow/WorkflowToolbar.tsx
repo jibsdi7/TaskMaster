@@ -42,6 +42,8 @@ interface WorkflowToolbarProps {
   onFitView: () => void;
   onAutoLayout: () => void;
   onSaveAsBlock: () => void;
+  onSaveSelectionAsBlock: () => void;
+  selectedNodeCount: number;
   onImportBlock: () => void;
   onViewCode: () => void;
   onImportScript: () => void;
@@ -77,8 +79,8 @@ const WorkflowToolbar = ({
   workflowName, onRenameWorkflow, status, isRecording, canUndo, canRedo,
   onNew, onSave, onDelete, onImport, onExport,
   onRecord, onStopRecording, onRun, onUndo, onRedo,
-  onZoomIn, onZoomOut, onFitView, onAutoLayout, onSaveAsBlock, onImportBlock, onViewCode,
-  onImportScript,
+  onZoomIn, onZoomOut, onFitView, onAutoLayout, onSaveAsBlock, onSaveSelectionAsBlock,
+  selectedNodeCount, onImportBlock, onViewCode, onImportScript,
 }: WorkflowToolbarProps) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -205,7 +207,14 @@ const WorkflowToolbar = ({
       {/* File actions */}
       <TB title="New" onClick={onNew}><NewIcon sx={{ fontSize: 16 }} /></TB>
       <TB title="Save" onClick={onSave}><SaveIcon sx={{ fontSize: 16 }} /></TB>
-      <TB title="Save as Block" onClick={onSaveAsBlock}><BlockIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Save as Block (whole workflow)" onClick={onSaveAsBlock}><BlockIcon sx={{ fontSize: 16 }} /></TB>
+      <TB
+        title={selectedNodeCount >= 2 ? `Save ${selectedNodeCount} selected nodes as Block` : 'Select ≥2 nodes to save as Block'}
+        onClick={onSaveSelectionAsBlock}
+        disabled={selectedNodeCount < 2}
+      >
+        <BlockIcon sx={{ fontSize: 16, color: selectedNodeCount >= 2 ? '#7B96F9' : undefined }} />
+      </TB>
       <TB title="Import Block into canvas" onClick={onImportBlock}>
         <ImportBlockIcon sx={{ fontSize: 16 }} />
       </TB>

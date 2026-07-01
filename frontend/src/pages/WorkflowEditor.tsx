@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import {
   Box,
   Dialog,
@@ -17,6 +17,9 @@ import {
   ListItemButton,
   ListItemText,
   Chip,
+  Snackbar,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -60,7 +63,11 @@ const WorkflowEditor = () => {
     setStatus,
     nodes,
     edges,
+    replaceSelectionWithBlock,
   } = useWorkflowStore();
+
+  // Count currently selected nodes (ReactFlow marks them with selected: true)
+  const selectedNodeCount = nodes.filter((n) => n.selected).length;
 
   // State for workflow name dialog
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
@@ -68,6 +75,19 @@ const WorkflowEditor = () => {
   const [saveBlockDialogOpen, setSaveBlockDialogOpen] = useState(false);
   const [blockName, setBlockName] = useState('');
   const [blockDescription, setBlockDescription] = useState('');
+
+  // Selection-to-block state
+  const [selectionBlockDialogOpen, setSelectionBlockDialogOpen] = useState(false);
+  const [selBlockName, setSelBlockName] = useState('');
+  const [selBlockDescription, setSelBlockDescription] = useState('');
+  const [selBlockCategory, setSelBlockCategory] = useState('General');
+  const [selBlockIsPublic, setSelBlockIsPublic] = useState(false);
+  const [selBlockSaving, setSelBlockSaving] = useState(false);
+  // After-save snackbar
+  const [savedBlockSnackbar, setSavedBlockSnackbar] = useState(false);
+  const [savedBlockId, setSavedBlockId] = useState<number | null>(null);
+  const [, setSavedBlockNodeId] = useState<string | null>(null);
+  const dismantleSnapshot = useRef<{ nodes: any[]; edges: any[] } | null>(null);
 
   // State for Import Script dialog
   const [importScriptOpen, setImportScriptOpen] = useState(false);
@@ -585,6 +605,103 @@ const WorkflowEditor = () => {
     setBlockDescription('');
   };
 
+  // ── Selection-to-Block ───────────────────────────────────────────────────
+  const handleSaveSelectionAsBlock = () => {
+    const count = nodes.filter((n) => n.selected).length;
+    if (count < 2) {
+      toast.error('Select at least 2 nodes first (shift-click or lasso)');
+      return;
+    }
+    setSelBlockName('');
+    setSelBlockDescription('');
+    setSelBlockCategory('General');
+    setSelBlockIsPublic(false);
+    setSelectionBlockDialogOpen(true);
+  };
+
+  const handleSelectionBlockConfirm = async () => {
+    if (!selBlockName.trim()) {
+      toast.error('Block name is required');
+      return;
+    }
+    const selectedNodeIds = nodes.filter((n) => n.selected).map((n) => n.id);
+    if (selectedNodeIds.length < 2) {
+      toast.error('No nodes selected');
+      return;
+    }
+    setSelBlockSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const selectedNodes = nodes.filter((n) => selectedNodeIds.includes(n.id));
+      const selectedEdges = edges.filter(
+        (e) => selectedNodeIds.includes(e.source) && selectedNodeIds.includes(e.target)
+      );
+
+      const res = await axios.post(
+        'http://localhost:8000/api/blocks',
+        {
+          name: selBlockName.trim(),
+          description: selBlockDescription.trim() || null,
+          category: selBlockCategory.trim() || 'General',
+          is_public: selBlockIsPublic,
+          nodes: selectedNodes.map((n) => ({
+            node_id: n.id,
+            node_type: n.data.nodeType,
+            label: n.data.label,
+            position_x: Math.round(n.position.x),
+            position_y: Math.round(n.position.y),
+            config: n.data.config || {},
+            metadata: {},
+          })),
+          edges: selectedEdges.map((e) => ({
+            edge_id: e.id,
+            source_node_id: e.source,
+            target_node_id: e.target,
+            source_handle: e.sourceHandle,
+            target_handle: e.targetHandle,
+            config: {},
+            metadata: {},
+          })),
+          inputs: [],
+          outputs: [],
+          metadata: { created_from_selection: true },
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const created = res.data;
+      setSelectionBlockDialogOpen(false);
+
+      // Replace selection with BLOCK node inline
+      const result = replaceSelectionWithBlock(selectedNodeIds, created.id, created.name);
+      if (result) {
+        dismantleSnapshot.current = result.snapshot;
+        setSavedBlockId(created.id);
+        setSavedBlockNodeId(result.blockNodeId);
+        setSavedBlockSnackbar(true);
+      }
+
+      toast.success(`"${created.name}" saved as reusable block`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to save block');
+    } finally {
+      setSelBlockSaving(false);
+    }
+  };
+
+  const handleDismantle = () => {
+    if (!dismantleSnapshot.current) return;
+    useWorkflowStore.setState({
+      nodes: dismantleSnapshot.current.nodes,
+      edges: dismantleSnapshot.current.edges,
+    });
+    dismantleSnapshot.current = null;
+    setSavedBlockSnackbar(false);
+    setSavedBlockId(null);
+    setSavedBlockNodeId(null);
+    toast.info('Block dismantled — original nodes restored');
+  };
+
   // ── Import Playwright Script ─────────────────────────────────────────────
   const handleImportScript = () => {
     setImportScriptText('');
@@ -720,6 +837,8 @@ const WorkflowEditor = () => {
         onFitView={handleFitView}
         onAutoLayout={autoLayout}
         onSaveAsBlock={handleSaveAsBlock}
+        onSaveSelectionAsBlock={handleSaveSelectionAsBlock}
+        selectedNodeCount={selectedNodeCount}
         onImportBlock={handleImportBlock}
         onViewCode={handleViewCode}
         onImportScript={handleImportScript}
@@ -933,6 +1052,110 @@ const WorkflowEditor = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ── Selection-to-Block Dialog ───────────────────────────────────── */}
+      <Dialog
+        open={selectionBlockDialogOpen}
+        onClose={() => !selBlockSaving && setSelectionBlockDialogOpen(false)}
+        PaperProps={{ sx: { backgroundColor: '#1c1c1c', border: '1px solid #2a2a2a', minWidth: 380 } }}
+      >
+        <DialogTitle sx={{ color: '#FFFFFF', borderBottom: '1px solid #2a2a2a', pb: 2 }}>
+          Save Selection as Reusable Block
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2.5, display: 'flex', flexDirection: 'column', gap: 0 }}>
+          <Typography variant="caption" sx={{ color: '#666', display: 'block', mb: 2 }}>
+            {`${nodes.filter((n) => n.selected).length} selected nodes will be packaged into a reusable block and replaced with a single BLOCK node.`}
+          </Typography>
+          {[
+            { label: 'Block Name *', value: selBlockName, setter: setSelBlockName },
+            { label: 'Category', value: selBlockCategory, setter: setSelBlockCategory },
+            { label: 'Description', value: selBlockDescription, setter: setSelBlockDescription },
+          ].map(({ label, value, setter }) => (
+            <TextField
+              key={label}
+              fullWidth size="small" label={label} value={value}
+              onChange={(e) => setter(e.target.value)}
+              autoFocus={label.startsWith('Block')}
+              multiline={label === 'Description'} rows={label === 'Description' ? 2 : 1}
+              sx={{
+                mb: 1.5,
+                '& .MuiOutlinedInput-root': { backgroundColor: '#242424', '& fieldset': { borderColor: '#3a3a3a' }, '&.Mui-focused fieldset': { borderColor: '#5B7CF6' } },
+                '& .MuiInputBase-input': { color: '#FFFFFF' },
+                '& .MuiInputLabel-root': { color: '#666' },
+              }}
+            />
+          ))}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={selBlockIsPublic}
+                onChange={(e) => setSelBlockIsPublic(e.target.checked)}
+                size="small"
+                sx={{ '& .MuiSwitch-thumb': { backgroundColor: selBlockIsPublic ? '#5B7CF6' : '#555' } }}
+              />
+            }
+            label={<Typography variant="caption" sx={{ color: '#888' }}>Make public</Typography>}
+          />
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid #2a2a2a', px: 3, py: 2 }}>
+          <Button onClick={() => setSelectionBlockDialogOpen(false)} disabled={selBlockSaving} sx={{ color: '#666' }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained" color="primary"
+            disabled={!selBlockName.trim() || selBlockSaving}
+            onClick={handleSelectionBlockConfirm}
+            startIcon={selBlockSaving ? <CircularProgress size={13} color="inherit" /> : undefined}
+          >
+            {selBlockSaving ? 'Saving…' : 'Save as Block'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Post-save Snackbar: Open in Editor / Dismantle ──────────────── */}
+      <Snackbar
+        open={savedBlockSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        sx={{ bottom: 32 }}
+      >
+        <Box
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            backgroundColor: '#1c1c1c', border: '1px solid #2a2a2a',
+            borderRadius: 2, px: 2.5, py: 1.5,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          }}
+        >
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#48BB78', flexShrink: 0 }} />
+          <Typography variant="body2" sx={{ color: '#E0E0F0', flex: 1 }}>
+            Block saved. What would you like to do?
+          </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => window.open(`/blocks/${savedBlockId}/edit`, '_blank')}
+            sx={{ color: '#7B96F9', borderColor: '#7B96F9', fontSize: '0.75rem', py: 0.4, px: 1.2, textTransform: 'none' }}
+          >
+            Open in Editor
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            onClick={handleDismantle}
+            sx={{ fontSize: '0.75rem', py: 0.4, px: 1.2, textTransform: 'none' }}
+          >
+            Dismantle
+          </Button>
+          <IconButton
+            size="small"
+            onClick={() => setSavedBlockSnackbar(false)}
+            sx={{ color: '#555', ml: 0.5 }}
+          >
+            <CheckIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+      </Snackbar>
 
       {/* Import Playwright Script Dialog */}
       <Dialog
