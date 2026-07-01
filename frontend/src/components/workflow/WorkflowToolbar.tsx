@@ -20,13 +20,14 @@ import {
   ContentPaste as ImportScriptIcon,
 } from '@mui/icons-material';
 
-export type ReplaySpeed = 'slow' | 'normal' | 'fast' | 'instant';
+export type ReplaySpeed = 'very_slow' | 'slow' | 'normal' | 'fast' | 'instant';
 
 export const SPEED_DELAY_MS: Record<ReplaySpeed, number> = {
-  slow:    1500,
-  normal:  500,
-  fast:    150,
-  instant: 0,
+  very_slow: 3000,
+  slow:      1500,
+  normal:    500,
+  fast:      150,
+  instant:   0,
 };
 
 interface WorkflowToolbarProps {
@@ -310,10 +311,11 @@ const WorkflowToolbar = ({
             '& .MuiSelect-select': { py: '5px', pl: 1 },
           }}
         >
-          <MenuItem value="slow"    sx={{ fontSize: '0.78rem' }}>🐢 Slow</MenuItem>
-          <MenuItem value="normal"  sx={{ fontSize: '0.78rem' }}>▶ Normal</MenuItem>
-          <MenuItem value="fast"    sx={{ fontSize: '0.78rem' }}>⚡ Fast</MenuItem>
-          <MenuItem value="instant" sx={{ fontSize: '0.78rem' }}>⚡⚡ Instant</MenuItem>
+          <MenuItem value="very_slow" sx={{ fontSize: '0.78rem' }}>🐌 Very Slow</MenuItem>
+          <MenuItem value="slow"      sx={{ fontSize: '0.78rem' }}>🐢 Slow</MenuItem>
+          <MenuItem value="normal"    sx={{ fontSize: '0.78rem' }}>▶ Normal</MenuItem>
+          <MenuItem value="fast"      sx={{ fontSize: '0.78rem' }}>⚡ Fast</MenuItem>
+          <MenuItem value="instant"   sx={{ fontSize: '0.78rem' }}>⚡⚡ Instant</MenuItem>
         </Select>
       </Tooltip>
 
