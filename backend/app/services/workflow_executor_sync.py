@@ -460,6 +460,15 @@ class WorkflowExecutorSync:
             locator.click(timeout=timeout)
             return {"clicked": selector}
         except Exception as e:
+            # TargetClosedError means the click triggered a full-page navigation and
+            # the old frame was destroyed before Playwright got an action response.
+            # This is expected behaviour for anchor/link clicks — the click worked.
+            if "Target page, context or browser has been closed" in str(e):
+                try:
+                    self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
+                except Exception:
+                    pass  # page already loaded
+                return {"clicked": selector, "navigated": True}
             self._log("ERROR", f"Click failed: {str(e)}")
             raise
     

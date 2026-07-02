@@ -1,9 +1,79 @@
 """
 Playwright Script Generator
 """
+import re
 from typing import Dict, List, Any
 from collections import deque
 from app.db.models import NodeType
+
+
+def _selector_to_python_locator(selector: str) -> str:
+    """Convert a structured selector string (as stored in node config) to a
+    Python Playwright locator expression that targets the correct element.
+
+    Supported formats (produced by PlaywrightScriptParser._extract_selector):
+      role=link[name="Dogs"]          -> page.get_by_role("link", name="Dogs")
+      role=button[name="Find Flights"]-> page.get_by_role("button", name="Find Flights")
+      role=button                     -> page.get_by_role("button")
+      text="Submit"                   -> page.get_by_text("Submit")
+      placeholder="First Last"        -> page.get_by_placeholder("First Last")
+      label="Email"                   -> page.get_by_label("Email")
+      anything else (CSS / XPath)     -> page.locator("<selector>")
+    """
+    # role=X[name="Y"] or role=X[name='Y']
+    m = re.match(r'^role=([^\[]+)\[name=["\']([^"\']+)["\']\]', selector)
+    if m:
+        return f'page.get_by_role("{m.group(1)}", name="{m.group(2)}")'
+
+    # role=X (no name)
+    m = re.match(r'^role=(\S+)$', selector)
+    if m:
+        return f'page.get_by_role("{m.group(1)}")'
+
+    # text="Y" or text='Y'
+    m = re.match(r'^text=["\']([^"\']+)["\']$', selector)
+    if m:
+        return f'page.get_by_text("{m.group(1)}")'
+
+    # placeholder="Y"
+    m = re.match(r'^placeholder=["\']([^"\']+)["\']$', selector)
+    if m:
+        return f'page.get_by_placeholder("{m.group(1)}")'
+
+    # label="Y"
+    m = re.match(r'^label=["\']([^"\']+)["\']$', selector)
+    if m:
+        return f'page.get_by_label("{m.group(1)}")'
+
+    # fallback: CSS / XPath / nth-match etc.
+    escaped = selector.replace('"', '\\"')
+    return f'page.locator("{escaped}")'
+
+
+def _selector_to_js_locator(selector: str) -> str:
+    """Same as _selector_to_python_locator but for JavaScript/TypeScript."""
+    m = re.match(r'^role=([^\[]+)\[name=["\']([^"\']+)["\']\]', selector)
+    if m:
+        return f"page.getByRole('{m.group(1)}', {{ name: '{m.group(2)}' }})"
+
+    m = re.match(r'^role=(\S+)$', selector)
+    if m:
+        return f"page.getByRole('{m.group(1)}')"
+
+    m = re.match(r'^text=["\']([^"\']+)["\']$', selector)
+    if m:
+        return f"page.getByText('{m.group(1)}')"
+
+    m = re.match(r'^placeholder=["\']([^"\']+)["\']$', selector)
+    if m:
+        return f"page.getByPlaceholder('{m.group(1)}')"
+
+    m = re.match(r'^label=["\']([^"\']+)["\']$', selector)
+    if m:
+        return f"page.getByLabel('{m.group(1)}')"
+
+    escaped = selector.replace("'", "\\'")
+    return f"page.locator('{escaped}')"
 
 
 def topological_sort(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -106,12 +176,14 @@ class ScriptGenerator:
             
             elif node_type == NodeType.CLICK.value:
                 selector = config.get("selector", "")
-                lines.append(f'        await page.get_by_text("{selector}").click()')
+                locator = _selector_to_python_locator(selector)
+                lines.append(f'        await {locator}.click()')
             
             elif node_type == NodeType.TYPE.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
-                lines.append(f'        await page.get_by_label("{selector}").fill("{value}")')
+                locator = _selector_to_python_locator(selector)
+                lines.append(f'        await {locator}.fill("{value}")')
             
             elif node_type == NodeType.SELECT.value:
                 selector = config.get("selector", "")
@@ -183,12 +255,14 @@ class ScriptGenerator:
             
             elif node_type == NodeType.CLICK.value:
                 selector = config.get("selector", "")
-                lines.append(f"  await page.getByText('{selector}').click();")
+                locator = _selector_to_js_locator(selector)
+                lines.append(f"  await {locator}.click();")
             
             elif node_type == NodeType.TYPE.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
-                lines.append(f"  await page.getByLabel('{selector}').fill('{value}');")
+                locator = _selector_to_js_locator(selector)
+                lines.append(f"  await {locator}.fill('{value}');")
             
             elif node_type == NodeType.SELECT.value:
                 selector = config.get("selector", "")
@@ -259,12 +333,14 @@ class ScriptGenerator:
             
             elif node_type == NodeType.CLICK.value:
                 selector = config.get("selector", "")
-                lines.append(f"  await page.getByText('{selector}').click();")
+                locator = _selector_to_js_locator(selector)
+                lines.append(f"  await {locator}.click();")
             
             elif node_type == NodeType.TYPE.value:
                 selector = config.get("selector", "")
                 value = config.get("value", "")
-                lines.append(f"  await page.getByLabel('{selector}').fill('{value}');")
+                locator = _selector_to_js_locator(selector)
+                lines.append(f"  await {locator}.fill('{value}');")
             
             elif node_type == NodeType.SELECT.value:
                 selector = config.get("selector", "")

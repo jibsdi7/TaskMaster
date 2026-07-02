@@ -2,6 +2,7 @@
 Enhanced Workflow Execution Engine with Branching, Loops, and Parallel Execution
 """
 import asyncio
+import re
 import sys
 from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
@@ -11,6 +12,60 @@ import time
 
 from app.core.config import settings
 from app.db.models import NodeType, WorkflowStatus
+
+
+def _resolve_single_locator(page, selector: str):
+    """Resolve a single (non-chained) structured selector to a Playwright locator."""
+    # :nth-match(N) modifier
+    nth_index = None
+    nth_m = re.search(r':nth-match\((\d+)\)$', selector)
+    if nth_m:
+        nth_index = int(nth_m.group(1))
+        selector = selector[:nth_m.start()]
+
+    # role=X[name="Y"]
+    m = re.match(r'^role=([^\[]+)\[name=["\']([^"\']+)["\']\]', selector)
+    if m:
+        locator = page.get_by_role(m.group(1), name=m.group(2))
+        return locator.nth(nth_index) if nth_index is not None else locator
+
+    # role=X (no name)
+    m = re.match(r'^role=(\S+)$', selector)
+    if m:
+        locator = page.get_by_role(m.group(1))
+        return locator.nth(nth_index) if nth_index is not None else locator
+
+    # text="Y"
+    m = re.match(r'^text=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_text(m.group(1))
+
+    # placeholder="Y"
+    m = re.match(r'^placeholder=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_placeholder(m.group(1))
+
+    # label="Y"
+    m = re.match(r'^label=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_label(m.group(1))
+
+    # fallback: CSS / XPath
+    locator = page.locator(selector)
+    return locator.nth(nth_index) if nth_index is not None else locator
+
+
+def _resolve_locator(page, selector: str):
+    """Return the correct Playwright locator object for a structured selector string.
+    Supports chained selectors (role=X >> role=Y) and all formats from _extract_selector.
+    """
+    if " >> " in selector:
+        parts = selector.split(" >> ")
+        locator = _resolve_single_locator(page, parts[0].strip())
+        for part in parts[1:]:
+            locator = locator.locator(_resolve_single_locator(page, part.strip()))
+        return locator
+    return _resolve_single_locator(page, selector)
 
 # Fix for Windows asyncio subprocess issue
 if sys.platform == 'win32':
@@ -493,16 +548,7 @@ class WorkflowExecutor:
         """Execute click"""
         selector = config.get("selector")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        
-        # Try different locator strategies
-        try:
-            await self.page.get_by_role("button", name=selector).click(timeout=timeout)
-        except:
-            try:
-                await self.page.get_by_text(selector).click(timeout=timeout)
-            except:
-                await self.page.locator(selector).click(timeout=timeout)
-        
+        await _resolve_locator(self.page, selector).click(timeout=timeout)
         return {"clicked": selector}
     
     async def _execute_type(self, config: Dict[str, Any]) -> Any:
@@ -510,16 +556,7 @@ class WorkflowExecutor:
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        
-        # Try different locator strategies
-        try:
-            await self.page.get_by_role("textbox", name=selector).fill(value, timeout=timeout)
-        except:
-            try:
-                await self.page.get_by_label(selector).fill(value, timeout=timeout)
-            except:
-                await self.page.locator(selector).fill(value, timeout=timeout)
-        
+        await _resolve_locator(self.page, selector).fill(value, timeout=timeout)
         return {"typed": value}
     
     async def _execute_select(self, config: Dict[str, Any]) -> Any:

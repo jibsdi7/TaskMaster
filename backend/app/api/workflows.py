@@ -527,8 +527,13 @@ async def execute_workflow(
                 run_id=run_id
             )
         
-        # Update workflow run with results
-        workflow_run.status = models.WorkflowStatus.COMPLETED
+        # Update workflow run with results — respect the status returned by the executor
+        exec_status = result.get("status", models.WorkflowStatus.COMPLETED.value)
+        workflow_run.status = (
+            models.WorkflowStatus.FAILED
+            if exec_status == models.WorkflowStatus.FAILED.value
+            else models.WorkflowStatus.COMPLETED
+        )
         # Convert datetime objects or ISO strings to datetime
         started_at = result.get("started_at")
         completed_at = result.get("completed_at")
