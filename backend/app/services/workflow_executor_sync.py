@@ -10,6 +10,7 @@ import os
 
 from app.core.config import settings
 from app.db.models import NodeType, WorkflowStatus
+from app.services.self_healing import SelfHealingLocator
 
 
 class ExecutionContext:
@@ -452,57 +453,56 @@ class WorkflowExecutorSync:
         return locator
     
     def _execute_click(self, config: Dict[str, Any]) -> Any:
-        """Execute click with support for Playwright selectors"""
+        """Execute click with self-healing selector fallback."""
         selector = config.get("selector")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        
-        # Skip if no selector provided
+
         if not selector:
             self._log("WARNING", "Click node has no selector, skipping")
             return {"skipped": True, "reason": "No selector provided"}
-        
+
+        healer = SelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
-            locator = self._parse_selector(selector)
+            locator, used_selector, recovery_log = healer.find(selector)
             locator.click(timeout=timeout)
-            return {"clicked": selector}
+            return {
+                "clicked": selector,
+                "used_selector": used_selector,
+                "self_healed": used_selector != selector,
+                "recovery_log": recovery_log,
+            }
         except Exception as e:
-            # TargetClosedError means the click triggered a full-page navigation and
-            # the old frame was destroyed before Playwright got an action response.
-            # This is expected behaviour for anchor/link clicks — the click worked.
+            # TargetClosedError — click triggered full-page navigation; the click worked.
             if "Target page, context or browser has been closed" in str(e):
                 try:
                     self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
                 except Exception:
-                    pass  # page already loaded
+                    pass
                 return {"clicked": selector, "navigated": True}
-            self._log("ERROR", f"Click failed: {str(e)}")
+            self._log("ERROR", f"Click failed after self-healing: {str(e)}")
             raise
-    
+
     def _execute_type(self, config: Dict[str, Any]) -> Any:
-        """Execute type/fill with realistic user interaction"""
+        """Execute type/fill with self-healing selector fallback."""
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        
+
+        healer = SelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
-            locator = self._parse_selector(selector)
-            
-            # Simulate realistic user interaction:
-            # 1. Click to focus the field
+            locator, used_selector, recovery_log = healer.find(selector)
             locator.click(timeout=timeout)
-            
-            # 2. Select all existing content (Ctrl+A)
             locator.press("Control+a")
-            
-            # 3. Type the new value (this will replace selected content)
             locator.fill(value)
-            
-            # 4. Press Tab to move to next field (triggers validation/events)
             locator.press("Tab")
-            
-            return {"typed": value}
+            return {
+                "typed": value,
+                "used_selector": used_selector,
+                "self_healed": used_selector != selector,
+                "recovery_log": recovery_log,
+            }
         except Exception as e:
-            self._log("ERROR", f"Type/fill failed: {str(e)}")
+            self._log("ERROR", f"Type/fill failed after self-healing: {str(e)}")
             raise
     
     def _execute_select(self, config: Dict[str, Any]) -> Any:

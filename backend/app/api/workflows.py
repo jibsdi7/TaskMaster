@@ -560,7 +560,11 @@ async def execute_workflow(
                 meta_data=meta
             )
             db.add(log)
-        
+
+        # Self-healing persistence — if any node was healed, write the working
+        # selector back into the node's config so future runs use it directly.
+        _persist_healed_selectors(workflow_id, result.get("logs", []), db)
+
         db.commit()
         db.refresh(workflow_run)
         
@@ -590,6 +594,45 @@ async def execute_workflow(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Workflow execution failed: {str(e)}"
         )
+
+def _persist_healed_selectors(
+    workflow_id: int,
+    logs: List[Dict[str, Any]],
+    db: "Session",
+) -> None:
+    """
+    Scan executor logs for self-healing events (healing_strategy != 'primary').
+    When found, update the corresponding WorkflowNode's config.selector with the
+    healed selector so future runs skip the fallback cascade entirely.
+    """
+    for entry in logs:
+        if entry.get("healing_strategy", "primary") == "primary":
+            continue  # no healing occurred for this log entry
+        healed_selector = entry.get("healed_selector")
+        node_id = entry.get("node_id")
+        if not healed_selector or not node_id:
+            continue
+        node = (
+            db.query(models.WorkflowNode)
+            .filter(
+                models.WorkflowNode.workflow_id == workflow_id,
+                models.WorkflowNode.node_id == node_id,
+            )
+            .first()
+        )
+        if node:
+            config = dict(node.config or {})
+            original = config.get("selector")
+            if original != healed_selector:
+                config["selector"] = healed_selector
+                config["_original_selector"] = original   # keep for reference
+                config["_self_healed"] = True
+                node.config = config
+                print(
+                    f"[SELF-HEAL] Node {node_id}: persisted healed selector "
+                    f"{healed_selector!r} (was {original!r})"
+                )
+
 
 def _resolve_block_nodes(
     nodes_data: List[Dict[str, Any]],

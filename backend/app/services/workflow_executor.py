@@ -12,6 +12,7 @@ import time
 
 from app.core.config import settings
 from app.db.models import NodeType, WorkflowStatus
+from app.services.self_healing import AsyncSelfHealingLocator
 
 
 def _resolve_single_locator(page, selector: str):
@@ -552,19 +553,54 @@ class WorkflowExecutor:
         return {"url": url}
     
     async def _execute_click(self, config: Dict[str, Any]) -> Any:
-        """Execute click"""
+        """Execute click with self-healing selector fallback."""
         selector = config.get("selector")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        await _resolve_locator(self.page, selector).click(timeout=timeout)
-        return {"clicked": selector}
-    
+
+        if not selector:
+            self._log("WARNING", "Click node has no selector, skipping")
+            return {"skipped": True, "reason": "No selector provided"}
+
+        healer = AsyncSelfHealingLocator(self.page, self._log, timeout_ms=timeout)
+        try:
+            locator, used_selector, recovery_log = await healer.find(selector)
+            await locator.click(timeout=timeout)
+            return {
+                "clicked": selector,
+                "used_selector": used_selector,
+                "self_healed": used_selector != selector,
+                "recovery_log": recovery_log,
+            }
+        except Exception as e:
+            # TargetClosedError — click triggered full-page navigation; the click worked.
+            if "Target page, context or browser has been closed" in str(e):
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
+                except Exception:
+                    pass
+                return {"clicked": selector, "navigated": True}
+            self._log("ERROR", f"Click failed after self-healing: {str(e)}")
+            raise
+
     async def _execute_type(self, config: Dict[str, Any]) -> Any:
-        """Execute type/fill"""
+        """Execute type/fill with self-healing selector fallback."""
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        await _resolve_locator(self.page, selector).fill(value, timeout=timeout)
-        return {"typed": value}
+
+        healer = AsyncSelfHealingLocator(self.page, self._log, timeout_ms=timeout)
+        try:
+            locator, used_selector, recovery_log = await healer.find(selector)
+            await locator.fill(value, timeout=timeout)
+            return {
+                "typed": value,
+                "used_selector": used_selector,
+                "self_healed": used_selector != selector,
+                "recovery_log": recovery_log,
+            }
+        except Exception as e:
+            self._log("ERROR", f"Type/fill failed after self-healing: {str(e)}")
+            raise
     
     async def _execute_select(self, config: Dict[str, Any]) -> Any:
         """Execute select option"""
