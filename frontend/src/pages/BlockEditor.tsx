@@ -15,8 +15,6 @@ import SaveIcon from '@mui/icons-material/Save';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import FitScreenIcon from '@mui/icons-material/FitScreen';
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import StopIcon from '@mui/icons-material/Stop';
 import {
   Mouse as ClickIcon, Keyboard as TypeIcon, CheckBox as SelectIcon,
   TouchApp as HoverIcon, Upload as UploadIcon, ArrowForward as NavigateIcon,
@@ -26,7 +24,6 @@ import {
 } from '@mui/icons-material';
 import { Handle, Position } from 'reactflow';
 import { toast } from 'react-toastify';
-import axios from 'axios';
 import AddNodeButton from '../components/workflow/AddNodeButton';
 import { NODE_COLORS } from '../components/workflow/nodeTemplates';
 
@@ -335,9 +332,6 @@ const BlockEditor = () => {
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState<string | null>(null);
 
-  // Recording state
-  const [isRecording, setIsRecording] = useState(false);
-
   // New block dialog
   const [nameDialogOpen, setNameDialogOpen] = useState(isNew);
   const [tempName, setTempName]   = useState('');
@@ -462,78 +456,6 @@ const BlockEditor = () => {
       return currentNodes;
     });
   }, []);
-
-  // ── Recording ─────────────────────────────────────────────────────────────
-  const handleRecord = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const url = prompt('Enter the URL to start recording:');
-      if (!url) return;
-
-      await axios.post(
-        'http://localhost:8000/api/recorder/start',
-        { url },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setIsRecording(true);
-      toast.success('Recording started. Perform actions in the browser, then click Stop.');
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to start recording');
-    }
-  };
-
-  const handleStopRecording = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        'http://localhost:8000/api/recorder/stop',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setIsRecording(false);
-
-      const actions = response.data.actions || [];
-      if (actions.length === 0) {
-        toast.info('Recording stopped. No actions captured.');
-        return;
-      }
-
-      // Calculate Y offset so new nodes appear below all existing ones
-      const maxY = nodes.reduce((m, n) => Math.max(m, n.position.y + 120), 0);
-      const yOffset = nodes.length > 0 ? maxY + 60 : 60;
-
-      const prefix = `rec_${Date.now()}_`;
-      const newNodes: Node[] = actions.map((a: any, i: number) => ({
-        id: `${prefix}${i}`,
-        type: 'blockNode',
-        position: { x: 60 + (i % 4) * 240, y: yOffset + Math.floor(i / 4) * 140 },
-        data: {
-          label: a.label || a.action_type || 'Action',
-          nodeType: a.action_type || a.node_type || 'CLICK',
-          config: a.config || { selector: a.selector, value: a.value, url: a.url },
-        },
-      }));
-
-      // Sequential edges connecting recorded nodes
-      const newEdges: Edge[] = newNodes.slice(1).map((n, i) => ({
-        id: `${prefix}e_${i}`,
-        source: newNodes[i].id,
-        target: n.id,
-        type: 'addable',
-        animated: true,
-        style: { stroke: '#5B7CF6', strokeWidth: 2 },
-      }));
-
-      // Append below existing content
-      setNodes(ns => [...ns, ...newNodes]);
-      setEdges(es => [...es, ...newEdges]);
-
-      toast.success(`${actions.length} recorded actions added to canvas`);
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to stop recording');
-      setIsRecording(false);
-    }
-  };
 
   // ── Serialise canvas → backend format ────────────────────────────────────
   const serialiseNodes = () =>
@@ -682,44 +604,6 @@ const BlockEditor = () => {
               <AutoFixHighIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Tooltip>
-        </Box>
-
-        {/* ── CENTER zone: Record / Stop ── */}
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          {!isRecording ? (
-            <Tooltip title="Record actions into this block">
-              <Button
-                variant="contained" size="small"
-                startIcon={<FiberManualRecordIcon sx={{ fontSize: 13 }} />}
-                onClick={handleRecord}
-                sx={{
-                  height: 30, px: 1.5, fontSize: '0.78rem', whiteSpace: 'nowrap',
-                  background: 'rgba(245,101,101,0.15)', color: '#F56565',
-                  border: '1px solid rgba(245,101,101,0.3)', boxShadow: 'none',
-                  '&:hover': { background: 'rgba(245,101,101,0.25)', boxShadow: 'none' },
-                }}
-              >
-                Record
-              </Button>
-            </Tooltip>
-          ) : (
-            <Tooltip title="Stop recording">
-              <Button
-                variant="contained" size="small"
-                startIcon={<StopIcon sx={{ fontSize: 13 }} />}
-                onClick={handleStopRecording}
-                sx={{
-                  height: 30, px: 1.5, fontSize: '0.78rem', whiteSpace: 'nowrap',
-                  background: 'rgba(245,101,101,0.9)',
-                  boxShadow: '0 0 12px rgba(245,101,101,0.4)',
-                  animation: 'pulse 2s infinite',
-                  '&:hover': { transform: 'none' },
-                }}
-              >
-                Stop
-              </Button>
-            </Tooltip>
-          )}
         </Box>
 
         {/* ── RIGHT zone: Create / Save Block ── */}
@@ -872,7 +756,6 @@ const BlockEditor = () => {
         </Box>
       )}
 
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.65} }`}</style>
     </Box>
   );
 };
