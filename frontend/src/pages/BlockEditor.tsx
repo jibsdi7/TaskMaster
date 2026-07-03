@@ -53,26 +53,22 @@ const BlockCanvasNode = ({ id, data, selected }: any) => {
   const IconComp = PALETTE_NODES.find(n => n.type === data.nodeType)?.icon ?? ClickIcon;
   return (
     <Box sx={{
-      minWidth: 160, backgroundColor: '#1e1e1e', borderRadius: 2,
-      border: selected ? `2px solid #fff` : `2px solid ${color}`,
-      boxShadow: selected
-        ? `0 0 0 2px ${color}, 0 0 16px 4px ${color}66`
-        : 'none',
-      transition: 'border-color 0.15s, box-shadow 0.15s',
+      minWidth: 160, backgroundColor: '#1e1e1e', borderRadius: '8px',
+      border: selected ? '2px solid #F56565' : `2px solid ${color}`,
+      transition: 'border-color 0.12s',
     }}>
       <Box sx={{
         display: 'flex', alignItems: 'center', gap: 1, p: 1,
-        backgroundColor: selected ? color : color,
-        opacity: selected ? 1 : 0.92,
+        backgroundColor: color,
         borderTopLeftRadius: 6, borderTopRightRadius: 6,
+        ...(selected && {
+          backgroundImage: 'linear-gradient(rgba(245,101,101,0.28), rgba(245,101,101,0.28))',
+        }),
       }}>
         <IconComp sx={{ fontSize: 16, color: 'white' }} />
         <Typography variant="caption" sx={{ flex: 1, color: 'white', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {data.label}
         </Typography>
-        {selected && (
-          <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#fff', flexShrink: 0, mr: 0.25 }} />
-        )}
         <IconButton size="small" onClick={() => data.onDelete?.(id)} sx={{ color: 'white', p: 0.25 }}>
           <DeleteIcon sx={{ fontSize: 13 }} />
         </IconButton>
@@ -240,7 +236,6 @@ const BlockCanvasInner = ({
 }) => {
   const { screenToFlowPosition, fitView } = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(new Set());
 
   // Expose fitView to parent toolbar
   useEffect(() => {
@@ -268,22 +263,20 @@ const BlockCanvasInner = ({
     }]);
   }, [screenToFlowPosition, onNodesChange, onNodeDelete, onSelectNode]);
 
-  const handleSelectionChange = useCallback(({ edges: selEdges }: { nodes: Node[]; edges: Edge[] }) => {
-    setSelectedEdgeIds(new Set((selEdges ?? []).map(e => e.id)));
-  }, []);
-
-  // Inject callbacks + highlight selected edges in red
+  // Inject callbacks + selection flag (driven by React Flow's own node.selected) into every node's data
   const nodesWithCbs = nodes.map(n => ({
     ...n,
-    data: { ...n.data, onDelete: onNodeDelete, onSettings: onSelectNode },
+    data: {
+      ...n.data,
+      onDelete: onNodeDelete,
+      onSettings: onSelectNode,
+      isSelected: !!n.selected,
+    },
   }));
 
   const edgesWithHandler = edges.map(e => ({
     ...e,
     type: 'addable',
-    style: selectedEdgeIds.has(e.id)
-      ? { stroke: '#F56565', strokeWidth: 2.5 }
-      : (e.style ?? { stroke: '#5B7CF6', strokeWidth: 2 }),
     data: {
       ...(e.data ?? {}),
       onInsertNodeOnEdge,
@@ -301,7 +294,6 @@ const BlockCanvasInner = ({
           onDrop={onDrop} onDragOver={onDragOver}
           onNodeClick={(_, n) => onSelectNode(n.id)}
           onPaneClick={onDeselectNode}
-          onSelectionChange={handleSelectionChange}
           nodeTypes={blockNodeTypes}
           edgeTypes={blockEdgeTypes}
           fitView deleteKeyCode="Delete"
