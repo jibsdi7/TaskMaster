@@ -2,6 +2,7 @@
 Enhanced Workflow Execution Engine with Branching, Loops, and Parallel Execution
 """
 import asyncio
+import re
 import sys
 from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
@@ -11,6 +12,60 @@ import time
 
 from app.core.config import settings
 from app.db.models import NodeType, WorkflowStatus
+
+
+def _resolve_single_locator(page, selector: str):
+    """Resolve a single (non-chained) structured selector to a Playwright locator."""
+    # :nth-match(N) modifier
+    nth_index = None
+    nth_m = re.search(r':nth-match\((\d+)\)$', selector)
+    if nth_m:
+        nth_index = int(nth_m.group(1))
+        selector = selector[:nth_m.start()]
+
+    # role=X[name="Y"]
+    m = re.match(r'^role=([^\[]+)\[name=["\']([^"\']+)["\']\]', selector)
+    if m:
+        locator = page.get_by_role(m.group(1), name=m.group(2))
+        return locator.nth(nth_index) if nth_index is not None else locator
+
+    # role=X (no name)
+    m = re.match(r'^role=(\S+)$', selector)
+    if m:
+        locator = page.get_by_role(m.group(1))
+        return locator.nth(nth_index) if nth_index is not None else locator
+
+    # text="Y"
+    m = re.match(r'^text=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_text(m.group(1))
+
+    # placeholder="Y"
+    m = re.match(r'^placeholder=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_placeholder(m.group(1))
+
+    # label="Y"
+    m = re.match(r'^label=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_label(m.group(1))
+
+    # fallback: CSS / XPath
+    locator = page.locator(selector)
+    return locator.nth(nth_index) if nth_index is not None else locator
+
+
+def _resolve_locator(page, selector: str):
+    """Return the correct Playwright locator object for a structured selector string.
+    Supports chained selectors (role=X >> role=Y) and all formats from _extract_selector.
+    """
+    if " >> " in selector:
+        parts = selector.split(" >> ")
+        locator = _resolve_single_locator(page, parts[0].strip())
+        for part in parts[1:]:
+            locator = locator.locator(_resolve_single_locator(page, part.strip()))
+        return locator
+    return _resolve_single_locator(page, selector)
 
 # Fix for Windows asyncio subprocess issue
 if sys.platform == 'win32':
@@ -174,10 +229,37 @@ class WorkflowExecutor:
         nodes: List[Dict[str, Any]],
         edges: List[Dict[str, Any]]
     ) -> List[str]:
-        """Find nodes with no incoming edges"""
-        all_nodes = {node.get("node_id") for node in nodes}
+        """Return exactly ONE true root node — the topmost-leftmost node that
+        has no incoming edge.
+
+        When a user deletes a connecting edge (e.g. node_2->node_3), node_3
+        loses its incoming edge and looks like a second root. Returning both
+        would cause the executor to run two independent chains. Instead we
+        always pick a single root: the OPEN_URL node if one exists among the
+        candidates, otherwise the node with the smallest canvas position
+        (position_x + position_y). The executor then follows edges from that
+        single root and raises an error when it hits a dead-end.
+        """
         target_nodes = {edge.get("target_node_id") for edge in edges}
-        return list(all_nodes - target_nodes)
+
+        # Candidates: nodes with no incoming edge
+        candidates = [n for n in nodes if n.get("node_id") not in target_nodes]
+
+        if not candidates:
+            return [nodes[0].get("node_id")] if nodes else []
+
+        if len(candidates) == 1:
+            return [candidates[0].get("node_id")]
+
+        # Multiple candidates — prefer OPEN_URL node first
+        open_url_candidates = [n for n in candidates
+                               if n.get("node_type") == "OPEN_URL"]
+        if open_url_candidates:
+            return [open_url_candidates[0].get("node_id")]
+
+        # Otherwise pick the topmost-leftmost by canvas position
+        candidates.sort(key=lambda n: (n.get("position_x", 0) + n.get("position_y", 0)))
+        return [candidates[0].get("node_id")]
     
     async def _execute_from_nodes(
         self,
@@ -224,7 +306,7 @@ class WorkflowExecutor:
     ):
         """Execute a single node and its downstream flow"""
         node_id = node.get("node_id")
-        
+
         # Execute node with retry logic
         result = await self._execute_node_with_retry(node, run_id)
         executed_nodes.add(node_id)
@@ -232,22 +314,42 @@ class WorkflowExecutor:
         # Inter-node delay for speed control (skip for DELAY nodes — they manage their own wait)
         if getattr(self, 'step_delay_ms', 0) > 0 and node.get("node_type") != "DELAY":
             await asyncio.sleep(self.step_delay_ms / 1000)
-        
+
         # Store result in context
         self.execution_context.set_node_result(node_id, result)
-        
+
         # Determine next nodes based on node type and result
         next_nodes = await self._determine_next_nodes(node, graph, result)
-        
+
         # Check if next nodes should be executed in parallel
         config = node.get("config", {})
         parallel_next = config.get("parallelExecution", False)
-        
-        # Execute next nodes
+
         if next_nodes:
             await self._execute_from_nodes(
                 next_nodes, nodes, graph, executed_nodes, run_id, parallel=parallel_next
             )
+        else:
+            # Dead-end check: if unexecuted nodes remain, a connecting edge is missing
+            all_node_ids = {n.get("node_id") for n in nodes}
+            unexecuted = all_node_ids - executed_nodes
+            if unexecuted:
+                label = node.get("label", node_id)
+                self._log("ERROR",
+                    f"Broken workflow: node '{label}' has no outgoing edge "
+                    f"but {len(unexecuted)} node(s) are unreachable: "
+                    f"{', '.join(sorted(str(x) for x in unexecuted))}",
+                    node_id,
+                    node_type=node.get("node_type"),
+                    node_label=label,
+                    node_status="failed"
+                )
+                raise RuntimeError(
+                    f"Missing edge after '{label}' — "
+                    f"{len(unexecuted)} node(s) unreachable: "
+                    f"{', '.join(sorted(str(x) for x in unexecuted))}. "
+                    f"Please reconnect the workflow in the editor."
+                )
     
     async def _execute_node_with_retry(
         self,
@@ -364,67 +466,78 @@ class WorkflowExecutor:
         run_id: str
     ) -> Any:
         """Execute a single node"""
+        import time as _time
         node_id = node.get("node_id")
         node_type = node.get("node_type")
+        node_label = node.get("label", "")
         config = node.get("config", {})
-        
-        self._log("INFO", f"Executing node: {node.get('label')}", node_id)
-        
+
+        node_start = _time.time()
+        self._log("INFO", f"Executing node: {node_label}", node_id,
+                  node_type=node_type, node_label=node_label)
+
         try:
             result = None
-            
+
             if node_type == NodeType.OPEN_URL.value:
                 result = await self._execute_navigate(config)
-            
+
             elif node_type == NodeType.CLICK.value:
                 result = await self._execute_click(config)
-            
+
             elif node_type == NodeType.TYPE.value:
                 result = await self._execute_type(config)
-            
+
             elif node_type == NodeType.SELECT.value:
                 result = await self._execute_select(config)
-            
+
             elif node_type == NodeType.HOVER.value:
                 result = await self._execute_hover(config)
-            
+
             elif node_type == NodeType.UPLOAD_FILE.value:
                 result = await self._execute_upload(config)
-            
+
             elif node_type == NodeType.DELAY.value:
                 result = await self._execute_delay(config)
-            
+
             elif node_type == NodeType.BACK.value:
                 result = await self._execute_back()
-            
+
             elif node_type == NodeType.REFRESH.value:
                 result = await self._execute_refresh()
-            
+
             elif node_type == NodeType.VARIABLE.value:
                 result = await self._execute_variable(config)
-            
+
             elif node_type == NodeType.API_REQUEST.value:
                 result = await self._execute_api_request(config)
-            
+
             elif node_type == NodeType.IF_CONDITION.value:
                 result = {"condition_node": True}
-            
+
             elif node_type == NodeType.LOOP.value:
                 result = {"loop_node": True}
-            
+
             else:
-                self._log("WARNING", f"Unknown node type: {node_type}", node_id)
-            
+                self._log("WARNING", f"Unknown node type: {node_type}", node_id,
+                          node_type=node_type, node_label=node_label)
+
             # Capture screenshot if enabled
             if config.get("screenshot", False):
                 await self._capture_screenshot(node_id, run_id)
-            
-            self._log("INFO", f"Node executed successfully: {node.get('label')}", node_id)
-            
+
+            duration_ms = round((_time.time() - node_start) * 1000)
+            self._log("INFO", f"Node executed successfully: {node_label}", node_id,
+                      node_type=node_type, node_label=node_label,
+                      duration_ms=duration_ms, node_status="passed")
+
             return result
-            
+
         except Exception as e:
-            self._log("ERROR", f"Node execution failed: {str(e)}", node_id)
+            duration_ms = round((_time.time() - node_start) * 1000)
+            self._log("ERROR", f"Node execution failed: {str(e)}", node_id,
+                      node_type=node_type, node_label=node_label,
+                      duration_ms=duration_ms, node_status="failed")
             # Capture error screenshot
             await self._capture_screenshot(f"{node_id}_error", run_id)
             raise
@@ -442,16 +555,7 @@ class WorkflowExecutor:
         """Execute click"""
         selector = config.get("selector")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        
-        # Try different locator strategies
-        try:
-            await self.page.get_by_role("button", name=selector).click(timeout=timeout)
-        except:
-            try:
-                await self.page.get_by_text(selector).click(timeout=timeout)
-            except:
-                await self.page.locator(selector).click(timeout=timeout)
-        
+        await _resolve_locator(self.page, selector).click(timeout=timeout)
         return {"clicked": selector}
     
     async def _execute_type(self, config: Dict[str, Any]) -> Any:
@@ -459,16 +563,7 @@ class WorkflowExecutor:
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        
-        # Try different locator strategies
-        try:
-            await self.page.get_by_role("textbox", name=selector).fill(value, timeout=timeout)
-        except:
-            try:
-                await self.page.get_by_label(selector).fill(value, timeout=timeout)
-            except:
-                await self.page.locator(selector).fill(value, timeout=timeout)
-        
+        await _resolve_locator(self.page, selector).fill(value, timeout=timeout)
         return {"typed": value}
     
     async def _execute_select(self, config: Dict[str, Any]) -> Any:
@@ -573,13 +668,15 @@ class WorkflowExecutor:
             "timestamp": datetime.utcnow().isoformat()
         })
     
-    def _log(self, level: str, message: str, node_id: str = None):
+    def _log(self, level: str, message: str, node_id: str = None, **kwargs):
         """Add log entry"""
-        self.logs.append({
+        entry = {
             "level": level,
             "message": message,
             "node_id": node_id,
-            "timestamp": datetime.utcnow().isoformat()
-        })
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        entry.update(kwargs)
+        self.logs.append(entry)
 
 # Made with Bob

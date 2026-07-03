@@ -449,7 +449,9 @@ async def execute_workflow(
                 "node_type": node.node_type.value,
                 "label": node.label,
                 "config": node.config or {},
-                "metadata": node.meta_data or {}
+                "metadata": node.meta_data or {},
+                "position_x": node.position_x or 0,
+                "position_y": node.position_y or 0,
             }
             for node in workflow.nodes
         ]
@@ -528,8 +530,13 @@ async def execute_workflow(
                 step_delay_ms=step_delay_ms,
             )
         
-        # Update workflow run with results
-        workflow_run.status = models.WorkflowStatus.COMPLETED
+        # Update workflow run with results — respect the status returned by the executor
+        exec_status = result.get("status", models.WorkflowStatus.COMPLETED.value)
+        workflow_run.status = (
+            models.WorkflowStatus.FAILED
+            if exec_status == models.WorkflowStatus.FAILED.value
+            else models.WorkflowStatus.COMPLETED
+        )
         # Convert datetime objects or ISO strings to datetime
         started_at = result.get("started_at")
         completed_at = result.get("completed_at")
@@ -538,15 +545,19 @@ async def execute_workflow(
         workflow_run.duration_seconds = result.get("duration_seconds")
         workflow_run.result = result.get("result", {})
         
-        # Save logs
+        # Save logs — persist all executor-enriched fields (duration_ms, node_status,
+        # node_type, node_label, …) into meta_data so the executions API can return them.
+        CORE_LOG_KEYS = {"level", "message", "node_id", "timestamp", "screenshot_path", "metadata"}
         for log_data in result.get("logs", []):
+            extra = {k: v for k, v in log_data.items() if k not in CORE_LOG_KEYS}
+            meta = {**log_data.get("metadata", {}), **extra}
             log = models.WorkflowLog(
                 run_id=workflow_run.id,
                 node_id=log_data.get("node_id"),
                 level=log_data.get("level", "INFO"),
                 message=log_data.get("message", ""),
                 screenshot_path=log_data.get("screenshot_path"),
-                meta_data=log_data.get("metadata", {})
+                meta_data=meta
             )
             db.add(log)
         
