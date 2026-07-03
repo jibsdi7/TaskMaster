@@ -8,7 +8,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import {
   Box, Typography, Button, TextField, IconButton, Tooltip,
-  CircularProgress, Alert, Chip, Select, MenuItem, InputLabel, FormControl,
+  CircularProgress, Alert, Chip, Select, MenuItem, InputLabel, FormControl, Divider,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -631,103 +631,113 @@ const BlockEditor = () => {
       {/* ── Toolbar ── */}
       <Box sx={{
         height: 52, backgroundColor: '#141414', borderBottom: '1px solid #242424',
-        display: 'flex', alignItems: 'center', px: 2, gap: 1, flexShrink: 0,
+        display: 'flex', alignItems: 'center', px: 2, flexShrink: 0,
       }}>
-        <Tooltip title="Back to Blocks">
-          <IconButton size="small" onClick={() => navigate('/blocks')} sx={{ color: '#A0A0B4', '&:hover': { color: '#E0E0F0', backgroundColor: '#242424' } }}>
-            <ArrowBackIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Tooltip>
 
-        <Box sx={{ width: 1, height: 24, backgroundColor: '#2a2a2a', mx: 0.5 }} />
+        {/* ── LEFT zone: back + name + view tools ── */}
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+          <Tooltip title="Back to Blocks">
+            <IconButton size="small" onClick={() => navigate('/blocks')}
+              sx={{ color: '#A0A0B4', flexShrink: 0, '&:hover': { color: '#E0E0F0', backgroundColor: '#242424' } }}>
+              <ArrowBackIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
 
-        {/* Block name */}
-        <Box sx={{
-          display: 'flex', alignItems: 'center', gap: 1,
-          px: 1.25, py: 0.5, backgroundColor: '#1c1c1c',
-          border: '1px solid #2a2a2a', borderRadius: '7px', maxWidth: 260,
-        }}>
-          <Box sx={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#7B96F9', flexShrink: 0 }} />
-          <Typography variant="body2" sx={{ color: '#E0E0F0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-            {blockName || 'Untitled Block'}
-          </Typography>
-          {!isNew && (
-            <Chip label={`v${blockVersion}`} size="small" sx={{ height: 16, fontSize: 10, backgroundColor: 'rgba(91,124,246,0.2)', color: '#7B96F9' }} />
+          <Divider orientation="vertical" flexItem sx={{ borderColor: '#2a2a2a', mx: 0.5 }} />
+
+          {/* Block name pill */}
+          <Box sx={{
+            display: 'inline-flex', alignItems: 'center', gap: 0.75,
+            px: 1.25, py: 0.4, backgroundColor: '#1c1c1c',
+            border: '1px solid #2a2a2a', borderRadius: '7px',
+            flexShrink: 1, minWidth: 0, maxWidth: { xs: 100, sm: 160, md: 200 },
+          }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#7B96F9', flexShrink: 0 }} />
+            <Typography noWrap sx={{ color: '#E0E0F0', fontWeight: 500, fontSize: '0.82rem', minWidth: 0 }}>
+              {blockName || 'Untitled Block'}
+            </Typography>
+            {!isNew && (
+              <Chip label={`v${blockVersion}`} size="small"
+                sx={{ height: 16, fontSize: 10, backgroundColor: 'rgba(91,124,246,0.2)', color: '#7B96F9', flexShrink: 0 }} />
+            )}
+          </Box>
+
+          <Divider orientation="vertical" flexItem sx={{ borderColor: '#2a2a2a', mx: 0.5 }} />
+
+          <Tooltip title="Fit view">
+            <IconButton size="small" onClick={() => fitViewFnRef.current?.()}
+              sx={{ color: '#A0A0B4', flexShrink: 0, '&:hover': { color: '#E0E0F0', backgroundColor: '#242424' } }}>
+              <FitScreenIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Auto layout">
+            <IconButton
+              size="small"
+              onClick={() => {
+                const COLS = 4, COL_W = 260, ROW_H = 140;
+                setNodes(ns => ns.map((n, i) => ({
+                  ...n, position: { x: (i % COLS) * COL_W + 40, y: Math.floor(i / COLS) * ROW_H + 40 },
+                })));
+              }}
+              sx={{ color: '#A0A0B4', flexShrink: 0, '&:hover': { color: '#E0E0F0', backgroundColor: '#242424' } }}
+            >
+              <AutoFixHighIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* ── CENTER zone: Record / Stop ── */}
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          {!isRecording ? (
+            <Tooltip title="Record actions into this block">
+              <Button
+                variant="contained" size="small"
+                startIcon={<FiberManualRecordIcon sx={{ fontSize: 13 }} />}
+                onClick={handleRecord}
+                sx={{
+                  height: 30, px: 1.5, fontSize: '0.78rem', whiteSpace: 'nowrap',
+                  background: 'rgba(245,101,101,0.15)', color: '#F56565',
+                  border: '1px solid rgba(245,101,101,0.3)', boxShadow: 'none',
+                  '&:hover': { background: 'rgba(245,101,101,0.25)', boxShadow: 'none' },
+                }}
+              >
+                Record
+              </Button>
+            </Tooltip>
+          ) : (
+            <Tooltip title="Stop recording">
+              <Button
+                variant="contained" size="small"
+                startIcon={<StopIcon sx={{ fontSize: 13 }} />}
+                onClick={handleStopRecording}
+                sx={{
+                  height: 30, px: 1.5, fontSize: '0.78rem', whiteSpace: 'nowrap',
+                  background: 'rgba(245,101,101,0.9)',
+                  boxShadow: '0 0 12px rgba(245,101,101,0.4)',
+                  animation: 'pulse 2s infinite',
+                  '&:hover': { transform: 'none' },
+                }}
+              >
+                Stop
+              </Button>
+            </Tooltip>
           )}
         </Box>
 
-        <Box sx={{ flex: 1 }} />
-
-        <Tooltip title="Fit view">
-          <IconButton size="small" onClick={() => fitViewFnRef.current?.()} sx={{ color: '#A0A0B4', '&:hover': { color: '#E0E0F0', backgroundColor: '#242424' } }}>
-            <FitScreenIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Auto layout">
-          <IconButton
-            size="small"
-            onClick={() => {
-              const COLS = 4, COL_W = 260, ROW_H = 140;
-              setNodes(ns => ns.map((n, i) => ({
-                ...n, position: { x: (i % COLS) * COL_W + 40, y: Math.floor(i / COLS) * ROW_H + 40 },
-              })));
-            }}
-            sx={{ color: '#A0A0B4', '&:hover': { color: '#E0E0F0', backgroundColor: '#242424' } }}
+        {/* ── RIGHT zone: Create / Save Block ── */}
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+          <Button
+            variant="contained" color="primary" size="small"
+            startIcon={saving ? <CircularProgress size={12} sx={{ color: 'white' }} /> : <SaveIcon sx={{ fontSize: 14 }} />}
+            disabled={saving}
+            onClick={handleSave}
+            sx={{ height: 30, px: 1.5, fontSize: '0.78rem', whiteSpace: 'nowrap' }}
           >
-            <AutoFixHighIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Tooltip>
+            {isNew ? 'Create Block' : 'Save Block'}
+          </Button>
+        </Box>
 
-        <Box sx={{ width: 1, height: 24, backgroundColor: '#2a2a2a', mx: 0.5 }} />
-
-        {/* Record / Stop */}
-        {!isRecording ? (
-          <Tooltip title="Record actions into this block">
-            <Button
-              variant="contained" size="small"
-              startIcon={<FiberManualRecordIcon sx={{ fontSize: 13 }} />}
-              onClick={handleRecord}
-              sx={{
-                height: 30, px: 1.5, fontSize: '0.78rem',
-                background: 'rgba(245,101,101,0.15)', color: '#F56565',
-                border: '1px solid rgba(245,101,101,0.3)', boxShadow: 'none',
-                '&:hover': { background: 'rgba(245,101,101,0.25)', boxShadow: 'none' },
-              }}
-            >
-              Record
-            </Button>
-          </Tooltip>
-        ) : (
-          <Tooltip title="Stop recording">
-            <Button
-              variant="contained" size="small"
-              startIcon={<StopIcon sx={{ fontSize: 13 }} />}
-              onClick={handleStopRecording}
-              sx={{
-                height: 30, px: 1.5, fontSize: '0.78rem',
-                background: 'rgba(245,101,101,0.9)',
-                boxShadow: '0 0 12px rgba(245,101,101,0.4)',
-                animation: 'pulse 2s infinite',
-                '&:hover': { transform: 'none' },
-              }}
-            >
-              Stop
-            </Button>
-          </Tooltip>
-        )}
-
-        <Box sx={{ width: 1, height: 24, backgroundColor: '#2a2a2a', mx: 0.5 }} />
-
-        <Button
-          variant="contained" color="primary" size="small"
-          startIcon={saving ? <CircularProgress size={12} sx={{ color: 'white' }} /> : <SaveIcon sx={{ fontSize: 14 }} />}
-          disabled={saving}
-          onClick={handleSave}
-          sx={{ height: 30, px: 1.5, fontSize: '0.78rem' }}
-        >
-          {isNew ? 'Create Block' : 'Save Block'}
-        </Button>
       </Box>
 
       {error && <Alert severity="error" sx={{ mx: 3, mt: 2 }}>{error}</Alert>}
