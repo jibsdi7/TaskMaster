@@ -62,7 +62,28 @@ async def get_dashboard(
 
     success_rate = round(successful_runs / total_executions * 100, 1) if total_executions > 0 else 0.0
 
-    # ── Execution trend (per-day within selected window) ──────────────
+    # ── Execution trend (per-day, zero-filled) ────────────────────────
+    # Use the actual date range of existing runs so clock-skew between the
+    # DB rows and the server clock never produces an empty window.
+    first_run = (
+        db.query(func.min(models.WorkflowRun.started_at))
+        .filter(models.WorkflowRun.workflow_id.in_(wf_ids))
+        .scalar()
+    ) if wf_ids else None
+
+    if first_run is not None:
+        # Anchor window to the most-recent run, not to utcnow()
+        latest_run = (
+            db.query(func.max(models.WorkflowRun.started_at))
+            .filter(models.WorkflowRun.workflow_id.in_(wf_ids))
+            .scalar()
+        )
+        window_end   = latest_run.date() if latest_run else datetime.utcnow().date()
+        window_start = window_end - timedelta(days=days - 1)
+    else:
+        window_end   = datetime.utcnow().date()
+        window_start = window_end - timedelta(days=days - 1)
+
     trend_rows = (
         db.query(
             func.date(models.WorkflowRun.started_at).label("day"),
@@ -70,14 +91,21 @@ async def get_dashboard(
         )
         .filter(
             models.WorkflowRun.workflow_id.in_(wf_ids),
-            models.WorkflowRun.started_at >= since,
+            func.date(models.WorkflowRun.started_at) >= str(window_start),
+            func.date(models.WorkflowRun.started_at) <= str(window_end),
         )
         .group_by(func.date(models.WorkflowRun.started_at))
         .order_by(func.date(models.WorkflowRun.started_at))
         .all()
     ) if wf_ids else []
 
-    execution_trend = [{"date": str(r.day), "count": r.count} for r in trend_rows]
+    # Zero-fill every day in the window so the chart is a continuous series
+    counts_by_day = {str(r.day): r.count for r in trend_rows}
+    execution_trend = []
+    for offset in range(days):
+        from datetime import date as date_type
+        day = (window_start + timedelta(days=offset)).strftime("%Y-%m-%d")
+        execution_trend.append({"date": day, "count": counts_by_day.get(day, 0)})
 
     # ── Execution status breakdown (period) ───────────────────────────
     status_rows = (
