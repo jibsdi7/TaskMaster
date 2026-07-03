@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import {
   Box,
   Dialog,
@@ -17,13 +17,16 @@ import {
   ListItemButton,
   ListItemText,
   Chip,
+  Snackbar,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
 import CheckIcon from '@mui/icons-material/Check';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useReactFlow } from 'reactflow';
-import WorkflowToolbar from '../components/workflow/WorkflowToolbar';
+import WorkflowToolbar, { ReplaySpeed, SPEED_DELAY_MS } from '../components/workflow/WorkflowToolbar';
 import NodePalette from '../components/workflow/NodePalette';
 import WorkflowCanvas from '../components/workflow/WorkflowCanvas';
 import NodeInspector from '../components/workflow/NodeInspector';
@@ -60,7 +63,11 @@ const WorkflowEditor = () => {
     setStatus,
     nodes,
     edges,
+    replaceSelectionWithBlock,
   } = useWorkflowStore();
+
+  // Count currently selected nodes (ReactFlow marks them with selected: true)
+  const selectedNodeCount = nodes.filter((n) => n.selected).length;
 
   // State for workflow name dialog
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
@@ -69,17 +76,36 @@ const WorkflowEditor = () => {
   const [blockName, setBlockName] = useState('');
   const [blockDescription, setBlockDescription] = useState('');
 
+  // Selection-to-block state
+  const [selectionBlockDialogOpen, setSelectionBlockDialogOpen] = useState(false);
+  const [selBlockName, setSelBlockName] = useState('');
+  const [selBlockDescription, setSelBlockDescription] = useState('');
+  const [selBlockCategory, setSelBlockCategory] = useState('General');
+  const [selBlockIsPublic, setSelBlockIsPublic] = useState(false);
+  const [selBlockSaving, setSelBlockSaving] = useState(false);
+  // After-save snackbar
+  const [savedBlockSnackbar, setSavedBlockSnackbar] = useState(false);
+  const [savedBlockId, setSavedBlockId] = useState<number | null>(null);
+  const [, setSavedBlockNodeId] = useState<string | null>(null);
+  const dismantleSnapshot = useRef<{ nodes: any[]; edges: any[] } | null>(null);
+
+  // Replay speed state
+  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>('normal');
+
   // State for Import Script dialog
   const [importScriptOpen, setImportScriptOpen] = useState(false);
   const [importScriptText, setImportScriptText] = useState('');
   const [importScriptName, setImportScriptName] = useState('');
   const [importScriptLoading, setImportScriptLoading] = useState(false);
 
+  // State for execution result dialog
+  const [execResultOpen, setExecResultOpen] = useState(false);
+  const [execResult, setExecResult] = useState<{ runId: string; status: string; duration: number | null } | null>(null);
+
   // State for Import Block dialog
   const [importBlockOpen, setImportBlockOpen] = useState(false);
   const [importBlocks, setImportBlocks] = useState<{ id: number; name: string; description: string; current_version: number }[]>([]);
   const [importBlocksLoading, setImportBlocksLoading] = useState(false);
-  const [importingBlockId, setImportingBlockId] = useState<number | null>(null);
 
   // State for code viewer dialog
   const [codeDialogOpen, setCodeDialogOpen] = useState(false);
@@ -198,7 +224,7 @@ const WorkflowEditor = () => {
       // Transform React Flow data to backend format
       const workflowData: any = {
         name: workflowName,
-        description: 'Workflow created with TaskMaster',
+        description: 'Workflow created with FlowWeaver',
         nodes: nodes.map((node) => ({
           node_id: node.id,
           node_type: node.data.nodeType,
@@ -297,7 +323,7 @@ const WorkflowEditor = () => {
     const data = {
       id: workflowId,
       name: workflowName,
-      description: 'Exported workflow',
+      description: 'Exported from FlowWeaver',
       nodes,
       edges,
     };
@@ -409,37 +435,22 @@ const WorkflowEditor = () => {
     try {
       const token = localStorage.getItem('token');
       setStatus('running');
-      
+
       const response = await axios.post(
         `http://localhost:8000/api/workflows/${workflowId}/execute`,
-        {},
+        { step_delay_ms: SPEED_DELAY_MS[replaySpeed] },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       setStatus('idle');
-      
-      // Show success message with execution details
-      const runId = response.data.run_id;
+
+      const runId    = response.data.run_id;
       const statusMsg = response.data.status;
-      const duration = response.data.duration_seconds;
-      
-      if (statusMsg === 'completed') {
-        toast.success(`Workflow executed successfully! Duration: ${duration?.toFixed(2) || 0}s`);
-      } else if (statusMsg === 'failed') {
-        toast.warning(`Workflow execution failed. Check backend logs for details.`);
-      } else {
-        toast.success('Workflow execution started. Check browser window for automation.');
-      }
-      
-      // Try to navigate to execution details (will work if database is connected)
-      if (runId) {
-        // Don't navigate immediately - give user option
-        setTimeout(() => {
-          if (window.confirm('View execution details? (Requires database connection)')) {
-            navigate(`/executions/${runId}`);
-          }
-        }, 1000);
-      }
+      const duration  = response.data.duration_seconds;
+
+      // Show stylised execution result dialog
+      setExecResult({ runId, status: statusMsg, duration });
+      setExecResultOpen(true);
     } catch (error: any) {
       console.error('Failed to run workflow:', error);
       toast.error(error.response?.data?.detail || 'Failed to run workflow');
@@ -585,6 +596,103 @@ const WorkflowEditor = () => {
     setBlockDescription('');
   };
 
+  // ── Selection-to-Block ───────────────────────────────────────────────────
+  const handleSaveSelectionAsBlock = () => {
+    const count = nodes.filter((n) => n.selected).length;
+    if (count < 2) {
+      toast.error('Select at least 2 nodes first (shift-click or lasso)');
+      return;
+    }
+    setSelBlockName('');
+    setSelBlockDescription('');
+    setSelBlockCategory('General');
+    setSelBlockIsPublic(false);
+    setSelectionBlockDialogOpen(true);
+  };
+
+  const handleSelectionBlockConfirm = async () => {
+    if (!selBlockName.trim()) {
+      toast.error('Block name is required');
+      return;
+    }
+    const selectedNodeIds = nodes.filter((n) => n.selected).map((n) => n.id);
+    if (selectedNodeIds.length < 2) {
+      toast.error('No nodes selected');
+      return;
+    }
+    setSelBlockSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const selectedNodes = nodes.filter((n) => selectedNodeIds.includes(n.id));
+      const selectedEdges = edges.filter(
+        (e) => selectedNodeIds.includes(e.source) && selectedNodeIds.includes(e.target)
+      );
+
+      const res = await axios.post(
+        'http://localhost:8000/api/blocks',
+        {
+          name: selBlockName.trim(),
+          description: selBlockDescription.trim() || null,
+          category: selBlockCategory.trim() || 'General',
+          is_public: selBlockIsPublic,
+          nodes: selectedNodes.map((n) => ({
+            node_id: n.id,
+            node_type: n.data.nodeType,
+            label: n.data.label,
+            position_x: Math.round(n.position.x),
+            position_y: Math.round(n.position.y),
+            config: n.data.config || {},
+            metadata: {},
+          })),
+          edges: selectedEdges.map((e) => ({
+            edge_id: e.id,
+            source_node_id: e.source,
+            target_node_id: e.target,
+            source_handle: e.sourceHandle,
+            target_handle: e.targetHandle,
+            config: {},
+            metadata: {},
+          })),
+          inputs: [],
+          outputs: [],
+          metadata: { created_from_selection: true },
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const created = res.data;
+      setSelectionBlockDialogOpen(false);
+
+      // Replace selection with BLOCK node inline
+      const result = replaceSelectionWithBlock(selectedNodeIds, created.id, created.name);
+      if (result) {
+        dismantleSnapshot.current = result.snapshot;
+        setSavedBlockId(created.id);
+        setSavedBlockNodeId(result.blockNodeId);
+        setSavedBlockSnackbar(true);
+      }
+
+      toast.success(`"${created.name}" saved as reusable block`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to save block');
+    } finally {
+      setSelBlockSaving(false);
+    }
+  };
+
+  const handleDismantle = () => {
+    if (!dismantleSnapshot.current) return;
+    useWorkflowStore.setState({
+      nodes: dismantleSnapshot.current.nodes,
+      edges: dismantleSnapshot.current.edges,
+    });
+    dismantleSnapshot.current = null;
+    setSavedBlockSnackbar(false);
+    setSavedBlockId(null);
+    setSavedBlockNodeId(null);
+    toast.info('Block dismantled — original nodes restored');
+  };
+
   // ── Import Playwright Script ─────────────────────────────────────────────
   const handleImportScript = () => {
     setImportScriptText('');
@@ -639,61 +747,27 @@ const WorkflowEditor = () => {
     }
   };
 
-  const handleImportBlockConfirm = async (blockId: number) => {
-    setImportingBlockId(blockId);
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:8000/api/blocks/${blockId}/definition`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) throw new Error('Failed to load block definition');
-      const def = await res.json();
+  const handleImportBlockConfirm = (blockId: number, blockName: string) => {
+    // Place the BLOCK node offset from existing nodes so it doesn't overlap
+    const existingCount = nodes.length;
+    const x = 80 + (existingCount % 4) * 300;
+    const y = 80 + Math.floor(existingCount / 4) * 200;
 
-      // Calculate offset so pasted nodes don't overlap existing ones
-      const existingCount = nodes.length;
-      const offsetX = 80 + (existingCount % 4) * 280;
-      const offsetY = 80 + Math.floor(existingCount / 4) * 160;
+    const newNode = {
+      id: `block_${blockId}_${Date.now()}`,
+      type: 'custom' as const,
+      position: { x, y },
+      data: {
+        label: blockName,
+        nodeType: 'BLOCK',
+        config: { block_id: blockId },
+        status: 'idle' as const,
+      },
+    };
 
-      // Build unique ID prefix to avoid collisions with existing nodes
-      const prefix = `imp_${blockId}_${Date.now()}_`;
-
-      const newNodes = (def.nodes || []).map((n: any) => ({
-        id: prefix + n.node_id,
-        type: 'custom',
-        position: {
-          x: (n.position_x ?? 0) + offsetX,
-          y: (n.position_y ?? 0) + offsetY,
-        },
-        data: {
-          label: n.label,
-          nodeType: n.node_type,
-          config: n.config || {},
-          status: 'idle' as const,
-        },
-      }));
-
-      const newEdges = (def.edges || []).map((e: any) => ({
-        id: prefix + e.edge_id,
-        source: prefix + e.source_node_id,
-        target: prefix + e.target_node_id,
-        type: 'smoothstep',
-        animated: true,
-        style: { stroke: '#1976d2', strokeWidth: 2 },
-      }));
-
-      // Merge into the current canvas
-      useWorkflowStore.setState(state => ({
-        nodes: [...state.nodes, ...newNodes],
-        edges: [...state.edges, ...newEdges],
-      }));
-
-      toast.success(`Imported "${def.block_name}" — ${newNodes.length} nodes added`);
-      setImportBlockOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to import block');
-    } finally {
-      setImportingBlockId(null);
-    }
+    useWorkflowStore.getState().addNode(newNode);
+    toast.success(`"${blockName}" added — select it and open the inspector to dismantle`);
+    setImportBlockOpen(false);
   };
 
   return (
@@ -720,9 +794,13 @@ const WorkflowEditor = () => {
         onFitView={handleFitView}
         onAutoLayout={autoLayout}
         onSaveAsBlock={handleSaveAsBlock}
+        onSaveSelectionAsBlock={handleSaveSelectionAsBlock}
+        selectedNodeCount={selectedNodeCount}
         onImportBlock={handleImportBlock}
         onViewCode={handleViewCode}
         onImportScript={handleImportScript}
+        replaySpeed={replaySpeed}
+        onReplaySpeedChange={setReplaySpeed}
       />
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <NodePalette />
@@ -862,8 +940,7 @@ const WorkflowEditor = () => {
               {importBlocks.map((b, i) => (
                 <ListItemButton
                   key={b.id}
-                  onClick={() => handleImportBlockConfirm(b.id)}
-                  disabled={importingBlockId === b.id}
+                  onClick={() => handleImportBlockConfirm(b.id, b.name)}
                   sx={{
                     borderBottom: i < importBlocks.length - 1 ? '1px solid #222' : 'none',
                     py: 1.25, px: 2,
@@ -886,9 +963,6 @@ const WorkflowEditor = () => {
                       </Typography>
                     }
                   />
-                  {importingBlockId === b.id && (
-                    <CircularProgress size={16} sx={{ color: '#5B7CF6', ml: 1 }} />
-                  )}
                 </ListItemButton>
               ))}
             </List>
@@ -933,6 +1007,110 @@ const WorkflowEditor = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ── Selection-to-Block Dialog ───────────────────────────────────── */}
+      <Dialog
+        open={selectionBlockDialogOpen}
+        onClose={() => !selBlockSaving && setSelectionBlockDialogOpen(false)}
+        PaperProps={{ sx: { backgroundColor: '#1c1c1c', border: '1px solid #2a2a2a', minWidth: 380 } }}
+      >
+        <DialogTitle sx={{ color: '#FFFFFF', borderBottom: '1px solid #2a2a2a', pb: 2 }}>
+          Save Selection as Reusable Block
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2.5, display: 'flex', flexDirection: 'column', gap: 0 }}>
+          <Typography variant="caption" sx={{ color: '#666', display: 'block', mb: 2 }}>
+            {`${nodes.filter((n) => n.selected).length} selected nodes will be packaged into a reusable block and replaced with a single BLOCK node.`}
+          </Typography>
+          {[
+            { label: 'Block Name *', value: selBlockName, setter: setSelBlockName },
+            { label: 'Category', value: selBlockCategory, setter: setSelBlockCategory },
+            { label: 'Description', value: selBlockDescription, setter: setSelBlockDescription },
+          ].map(({ label, value, setter }) => (
+            <TextField
+              key={label}
+              fullWidth size="small" label={label} value={value}
+              onChange={(e) => setter(e.target.value)}
+              autoFocus={label.startsWith('Block')}
+              multiline={label === 'Description'} rows={label === 'Description' ? 2 : 1}
+              sx={{
+                mb: 1.5,
+                '& .MuiOutlinedInput-root': { backgroundColor: '#242424', '& fieldset': { borderColor: '#3a3a3a' }, '&.Mui-focused fieldset': { borderColor: '#5B7CF6' } },
+                '& .MuiInputBase-input': { color: '#FFFFFF' },
+                '& .MuiInputLabel-root': { color: '#666' },
+              }}
+            />
+          ))}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={selBlockIsPublic}
+                onChange={(e) => setSelBlockIsPublic(e.target.checked)}
+                size="small"
+                sx={{ '& .MuiSwitch-thumb': { backgroundColor: selBlockIsPublic ? '#5B7CF6' : '#555' } }}
+              />
+            }
+            label={<Typography variant="caption" sx={{ color: '#888' }}>Make public</Typography>}
+          />
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid #2a2a2a', px: 3, py: 2 }}>
+          <Button onClick={() => setSelectionBlockDialogOpen(false)} disabled={selBlockSaving} sx={{ color: '#666' }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained" color="primary"
+            disabled={!selBlockName.trim() || selBlockSaving}
+            onClick={handleSelectionBlockConfirm}
+            startIcon={selBlockSaving ? <CircularProgress size={13} color="inherit" /> : undefined}
+          >
+            {selBlockSaving ? 'Saving…' : 'Save as Block'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Post-save Snackbar: Open in Editor / Dismantle ──────────────── */}
+      <Snackbar
+        open={savedBlockSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        sx={{ bottom: 32 }}
+      >
+        <Box
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            backgroundColor: '#1c1c1c', border: '1px solid #2a2a2a',
+            borderRadius: 2, px: 2.5, py: 1.5,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          }}
+        >
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#48BB78', flexShrink: 0 }} />
+          <Typography variant="body2" sx={{ color: '#E0E0F0', flex: 1 }}>
+            Block saved. What would you like to do?
+          </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => window.open(`/blocks/${savedBlockId}/edit`, '_blank')}
+            sx={{ color: '#7B96F9', borderColor: '#7B96F9', fontSize: '0.75rem', py: 0.4, px: 1.2, textTransform: 'none' }}
+          >
+            Open in Editor
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            onClick={handleDismantle}
+            sx={{ fontSize: '0.75rem', py: 0.4, px: 1.2, textTransform: 'none' }}
+          >
+            Dismantle
+          </Button>
+          <IconButton
+            size="small"
+            onClick={() => setSavedBlockSnackbar(false)}
+            sx={{ color: '#555', ml: 0.5 }}
+          >
+            <CheckIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+      </Snackbar>
 
       {/* Import Playwright Script Dialog */}
       <Dialog
@@ -990,6 +1168,142 @@ const WorkflowEditor = () => {
             startIcon={importScriptLoading ? <CircularProgress size={14} color="inherit" /> : undefined}
           >
             {importScriptLoading ? 'Importing…' : 'Import'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Execution Result Dialog ─────────────────────────────────── */}
+      <Dialog
+        open={execResultOpen}
+        onClose={() => setExecResultOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: '#1c1c1c',
+            border: '1px solid #2a2a2a',
+            borderRadius: '12px',
+            overflow: 'hidden',
+          },
+        }}
+      >
+        {/* Coloured header band */}
+        <Box
+          sx={{
+            px: 3, py: 2.5,
+            backgroundColor: execResult?.status === 'completed'
+              ? 'rgba(72,187,120,0.12)'
+              : execResult?.status === 'failed'
+              ? 'rgba(245,101,101,0.12)'
+              : 'rgba(91,124,246,0.12)',
+            borderBottom: '1px solid',
+            borderColor: execResult?.status === 'completed'
+              ? 'rgba(72,187,120,0.25)'
+              : execResult?.status === 'failed'
+              ? 'rgba(245,101,101,0.25)'
+              : 'rgba(91,124,246,0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+          }}
+        >
+          {/* Status dot */}
+          <Box
+            sx={{
+              width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+              backgroundColor: execResult?.status === 'completed'
+                ? '#48BB78'
+                : execResult?.status === 'failed'
+                ? '#F56565'
+                : '#5B7CF6',
+            }}
+          />
+          <Typography variant="body1" sx={{ fontWeight: 700, color: '#E0E0F0', fontSize: '0.95rem' }}>
+            {execResult?.status === 'completed'
+              ? 'Workflow Completed'
+              : execResult?.status === 'failed'
+              ? 'Workflow Failed'
+              : 'Execution Finished'}
+          </Typography>
+        </Box>
+
+        <DialogContent sx={{ px: 3, pt: 2.5, pb: 1 }}>
+          {/* Duration */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10 }}>
+              Duration
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#E0E0E0', fontWeight: 600, fontFamily: '"Fira Code", monospace' }}>
+              {execResult?.duration != null ? `${execResult.duration.toFixed(2)}s` : '—'}
+            </Typography>
+          </Box>
+
+          {/* Run ID */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
+            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10 }}>
+              Run ID
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{
+                color: '#555',
+                fontFamily: '"Fira Code", monospace',
+                fontSize: 11,
+                maxWidth: 180,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {execResult?.runId ?? '—'}
+            </Typography>
+          </Box>
+
+          {/* Failed message hint */}
+          {execResult?.status === 'failed' && (
+            <Box
+              sx={{
+                p: 1.5, borderRadius: '7px',
+                backgroundColor: 'rgba(245,101,101,0.08)',
+                border: '1px solid rgba(245,101,101,0.2)',
+                mb: 2,
+              }}
+            >
+              <Typography variant="caption" sx={{ color: '#F56565' }}>
+                Execution failed. Check the backend logs for details.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 0, gap: 1 }}>
+          <Button
+            onClick={() => setExecResultOpen(false)}
+            size="small"
+            sx={{
+              color: '#666', textTransform: 'none', fontSize: '0.82rem',
+              '&:hover': { color: '#A0A0B4', backgroundColor: 'transparent' },
+            }}
+          >
+            Dismiss
+          </Button>
+          <Button
+            variant="contained"
+            size="small"
+            disabled={!execResult?.runId}
+            onClick={() => {
+              setExecResultOpen(false);
+              navigate(`/executions/${execResult!.runId}`);
+            }}
+            sx={{
+              textTransform: 'none',
+              fontSize: '0.82rem',
+              backgroundColor: '#5B7CF6',
+              '&:hover': { backgroundColor: '#4a6be0' },
+              '&.Mui-disabled': { backgroundColor: '#242424', color: '#333' },
+            }}
+          >
+            View Execution Details →
           </Button>
         </DialogActions>
       </Dialog>

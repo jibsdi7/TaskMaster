@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Node, Edge, Connection, addEdge, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from 'reactflow';
+import { NODE_COLORS } from '../components/workflow/nodeTemplates';
 
 interface WorkflowState {
   // Workflow metadata
@@ -20,6 +21,9 @@ interface WorkflowState {
   history: { nodes: Node[]; edges: Edge[] }[];
   historyIndex: number;
   
+  // Auto-layout trigger: incremented by autoLayout so WorkflowCanvas can call fitView
+  layoutVersion: number;
+
   // Actions
   setWorkflowId: (id: string | null) => void;
   setWorkflowName: (name: string) => void;
@@ -43,6 +47,23 @@ interface WorkflowState {
   canUndo: () => boolean;
   canRedo: () => boolean;
   
+  // Inline insert
+  insertNodeOnEdge: (edgeId: string, nodeType: string, label: string, blockId?: number) => void;
+
+  // Selection-to-block
+  replaceSelectionWithBlock: (
+    selectedNodeIds: string[],
+    blockId: number,
+    blockName: string
+  ) => { snapshot: { nodes: Node[]; edges: Edge[] }; blockNodeId: string } | null;
+
+  // Expand a BLOCK node back into its constituent nodes/edges (dismantle)
+  expandBlockNode: (
+    blockNodeId: string,
+    definitionNodes: Array<{ node_id: string; node_type: string; label: string; position_x: number; position_y: number; config: Record<string, any> }>,
+    definitionEdges: Array<{ edge_id: string; source_node_id: string; target_node_id: string; source_handle?: string; target_handle?: string }>
+  ) => void;
+
   // Workflow actions
   clearWorkflow: () => void;
   loadWorkflow: (workflow: { id: string; name: string; description: string; nodes: Node[]; edges: Edge[] }) => void;
@@ -61,6 +82,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   isRecording: false,
   history: [],
   historyIndex: -1,
+  layoutVersion: 0,
 
   // Setters
   setWorkflowId: (id) => set({ workflowId: id }),
@@ -84,7 +106,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   
   onConnect: (connection) => {
     set((state) => ({
-      edges: addEdge(connection, state.edges),
+      edges: addEdge(
+        { ...connection, type: 'addable', animated: true, style: { stroke: '#1976d2', strokeWidth: 2 } },
+        state.edges
+      ),
     }));
     get().saveToHistory();
   },
@@ -196,26 +221,286 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
   },
   
-  autoLayout: () => {
-    const { nodes } = get();
-    const COLUMN_WIDTH = 300;
-    const ROW_HEIGHT = 150;
-    const NODES_PER_COLUMN = 8;
-    
-    const layoutedNodes = nodes.map((node, index) => {
-      const column = Math.floor(index / NODES_PER_COLUMN);
-      const row = index % NODES_PER_COLUMN;
-      
-      return {
-        ...node,
-        position: {
-          x: column * COLUMN_WIDTH + 50,
-          y: row * ROW_HEIGHT + 50,
-        },
-      };
+  insertNodeOnEdge: (edgeId, nodeType, label, blockId) => {
+    const { nodes, edges } = get();
+    const edge = edges.find((e) => e.id === edgeId);
+    if (!edge) return;
+
+    const sourceNode = nodes.find((n) => n.id === edge.source);
+    const targetNode = nodes.find((n) => n.id === edge.target);
+    if (!sourceNode || !targetNode) return;
+
+    // Place new node at the geometric midpoint between source and target
+    const newPosition = {
+      x: (sourceNode.position.x + targetNode.position.x) / 2,
+      y: (sourceNode.position.y + targetNode.position.y) / 2,
+    };
+
+    const newId = `node_${Date.now()}`;
+    const color = NODE_COLORS[nodeType] || '#757575';
+
+    const newNode: Node = {
+      id: newId,
+      type: 'custom',
+      position: newPosition,
+      data: {
+        label,
+        nodeType,
+        config: blockId != null ? { block_id: blockId } : {},
+        status: 'idle' as const,
+        // onDelete / onSettings injected by WorkflowCanvas like all other nodes
+      },
+    };
+
+    const edgeBase = {
+      type: 'addable',
+      animated: true,
+      style: { stroke: color, strokeWidth: 2 },
+    };
+
+    const edgeToNew: Edge = {
+      ...edgeBase,
+      id: `e_${edge.source}_${newId}`,
+      source: edge.source,
+      target: newId,
+      sourceHandle: edge.sourceHandle ?? undefined,
+    };
+
+    const edgeFromNew: Edge = {
+      ...edgeBase,
+      id: `e_${newId}_${edge.target}`,
+      source: newId,
+      target: edge.target,
+      targetHandle: edge.targetHandle ?? undefined,
+    };
+
+    set((state) => ({
+      nodes: [...state.nodes, newNode],
+      edges: [
+        ...state.edges.filter((e) => e.id !== edgeId),
+        edgeToNew,
+        edgeFromNew,
+      ],
+    }));
+    get().saveToHistory();
+  },
+
+  replaceSelectionWithBlock: (selectedNodeIds, blockId, blockName) => {
+    const { nodes, edges } = get();
+    const selectedSet = new Set(selectedNodeIds);
+
+    // Snapshot current state for potential dismantle
+    const snapshot = { nodes: [...nodes], edges: [...edges] };
+
+    const selectedNodes = nodes.filter((n) => selectedSet.has(n.id));
+    if (selectedNodes.length === 0) return null;
+
+    // Centroid of selected nodes
+    const cx = selectedNodes.reduce((s, n) => s + n.position.x, 0) / selectedNodes.length;
+    const cy = selectedNodes.reduce((s, n) => s + n.position.y, 0) / selectedNodes.length;
+
+    const blockNodeId = `block_${blockId}_${Date.now()}`;
+
+    const blockNode: Node = {
+      id: blockNodeId,
+      type: 'custom',
+      position: { x: cx, y: cy },
+      data: {
+        label: blockName,
+        nodeType: 'BLOCK',
+        config: { block_id: blockId },
+        status: 'idle' as const,
+      },
+    };
+
+    // Edges that cross the selection boundary need to be re-wired to the BLOCK node
+    const internalEdgeIds = new Set(
+      edges
+        .filter((e) => selectedSet.has(e.source) && selectedSet.has(e.target))
+        .map((e) => e.id)
+    );
+
+    const rewiredEdges: Edge[] = edges
+      .filter((e) => !internalEdgeIds.has(e.id))
+      .map((e) => {
+        const srcInside = selectedSet.has(e.source);
+        const tgtInside = selectedSet.has(e.target);
+        if (srcInside && !tgtInside) {
+          return { ...e, id: `${e.id}_rw`, source: blockNodeId };
+        }
+        if (!srcInside && tgtInside) {
+          return { ...e, id: `${e.id}_rw`, target: blockNodeId };
+        }
+        return e;
+      });
+
+    set({
+      nodes: [...nodes.filter((n) => !selectedSet.has(n.id)), blockNode],
+      edges: rewiredEdges,
     });
-    
-    set({ nodes: layoutedNodes });
+    get().saveToHistory();
+    return { snapshot, blockNodeId };
+  },
+
+  expandBlockNode: (blockNodeId, definitionNodes, definitionEdges) => {
+    const { nodes, edges } = get();
+    const blockNode = nodes.find((n) => n.id === blockNodeId);
+    if (!blockNode) return;
+
+    const bx = blockNode.position.x;
+    const by = blockNode.position.y;
+
+    // Compute centroid of the definition nodes so we can offset them
+    // to land where the BLOCK node currently sits.
+    const cx = definitionNodes.length
+      ? definitionNodes.reduce((s, n) => s + n.position_x, 0) / definitionNodes.length
+      : 0;
+    const cy = definitionNodes.length
+      ? definitionNodes.reduce((s, n) => s + n.position_y, 0) / definitionNodes.length
+      : 0;
+
+    // Build id-remapping: definition uses its own node_ids; we stamp fresh ids
+    // to avoid collisions with anything already on the canvas.
+    const idMap: Record<string, string> = {};
+    const now = Date.now();
+    definitionNodes.forEach((dn, i) => {
+      idMap[dn.node_id] = `exp_${now}_${i}`;
+    });
+
+    const expandedNodes: Node[] = definitionNodes.map((dn) => ({
+      id: idMap[dn.node_id],
+      type: 'custom',
+      position: {
+        x: bx + (dn.position_x - cx),
+        y: by + (dn.position_y - cy),
+      },
+      data: {
+        label: dn.label,
+        nodeType: dn.node_type,
+        config: dn.config || {},
+        status: 'idle' as const,
+      },
+    }));
+
+    const expandedEdges: Edge[] = definitionEdges.map((de, i) => ({
+      id: `exp_edge_${now}_${i}`,
+      type: 'addable',
+      animated: true,
+      style: { stroke: '#607D8B', strokeWidth: 2 },
+      source: idMap[de.source_node_id] ?? de.source_node_id,
+      target: idMap[de.target_node_id] ?? de.target_node_id,
+      sourceHandle: de.source_handle ?? undefined,
+      targetHandle: de.target_handle ?? undefined,
+    }));
+
+    // Find boundary nodes in the definition: the entry node (no incoming def
+    // edge) and exit node (no outgoing def edge). Used to re-wire canvas edges.
+    const defTargetIds = new Set(definitionEdges.map((e) => e.target_node_id));
+    const defSourceIds = new Set(definitionEdges.map((e) => e.source_node_id));
+    const entryDefId = definitionNodes.find((n) => !defTargetIds.has(n.node_id))?.node_id
+      ?? definitionNodes[0]?.node_id;
+    const exitDefId = definitionNodes.find((n) => !defSourceIds.has(n.node_id))?.node_id
+      ?? definitionNodes[definitionNodes.length - 1]?.node_id;
+
+    const entryNewId = entryDefId ? (idMap[entryDefId] ?? null) : null;
+    const exitNewId  = exitDefId  ? (idMap[exitDefId]  ?? null) : null;
+
+    // Re-wire canvas edges that pointed at the BLOCK node
+    const rewiredCanvasEdges: Edge[] = edges
+      .filter((e) => e.source !== blockNodeId && e.target !== blockNodeId)
+      .concat(
+        edges
+          .filter((e) => e.target === blockNodeId && entryNewId)
+          .map((e) => ({ ...e, id: `${e.id}_exp`, target: entryNewId! })),
+        edges
+          .filter((e) => e.source === blockNodeId && exitNewId)
+          .map((e) => ({ ...e, id: `${e.id}_exp`, source: exitNewId! })),
+      );
+
+    set({
+      nodes: [...nodes.filter((n) => n.id !== blockNodeId), ...expandedNodes],
+      edges: [...rewiredCanvasEdges, ...expandedEdges],
+      selectedNodeId: null,
+    });
+    get().saveToHistory();
+  },
+
+  autoLayout: () => {
+    const { nodes, edges } = get();
+    if (nodes.length === 0) return;
+
+    const NODE_WIDTH  = 220;  // approximate rendered width of CustomNode
+    const NODE_HEIGHT = 100;  // approximate rendered height
+    const H_GAP = 120;        // horizontal gap between nodes in the same rank
+    const V_GAP = 160;        // vertical gap between ranks
+
+    // ── 1. Build adjacency and in-degree maps ──────────────────────────────
+    const inDegree: Record<string, number>   = {};
+    const children: Record<string, string[]> = {};
+    const nodeIds = new Set(nodes.map((n) => n.id));
+
+    nodes.forEach((n) => { inDegree[n.id] = 0; children[n.id] = []; });
+
+    edges.forEach((e) => {
+      if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) return;
+      inDegree[e.target] = (inDegree[e.target] ?? 0) + 1;
+      children[e.source].push(e.target);
+    });
+
+    // ── 2. Kahn's BFS → assign rank (layer) to each node ──────────────────
+    // Root nodes (in-degree 0) must have their rank written explicitly here.
+    // Without this, rank[id] stays undefined and they fall into the floating
+    // bucket below, appearing after all other nodes.
+    const rank: Record<string, number> = {};
+    const queue: string[] = [];
+    nodes.forEach((n) => {
+      if (inDegree[n.id] === 0) {
+        rank[n.id] = 0;
+        queue.push(n.id);
+      }
+    });
+
+    const workDeg = { ...inDegree };
+    let head = 0;
+    while (head < queue.length) {
+      const id = queue[head++];
+      const r = rank[id];  // always defined now
+      children[id].forEach((child) => {
+        rank[child] = Math.max(rank[child] ?? 0, r + 1);
+        workDeg[child]--;
+        if (workDeg[child] === 0) queue.push(child);
+      });
+    }
+
+    // Nodes not reached by BFS (disconnected / cycle members) → own ranks
+    const maxBfsRank = nodes.reduce((m, n) => Math.max(m, rank[n.id] ?? 0), 0);
+    let floatingRank = maxBfsRank + 1;
+    nodes.forEach((n) => { if (rank[n.id] === undefined) rank[n.id] = floatingRank++; });
+
+    // ── 3. Group by rank, then x-centre each rank ─────────────────────────
+    const byRank: Record<number, string[]> = {};
+    nodes.forEach((n) => { const r = rank[n.id]; (byRank[r] = byRank[r] ?? []).push(n.id); });
+
+    const pos: Record<string, { x: number; y: number }> = {};
+    Object.keys(byRank)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .forEach((r) => {
+        const ids = byRank[r];
+        const totalW = ids.length * NODE_WIDTH + (ids.length - 1) * H_GAP;
+        const startX = -totalW / 2;
+        ids.forEach((id, i) => {
+          pos[id] = {
+            x: startX + i * (NODE_WIDTH + H_GAP),
+            y: r * (NODE_HEIGHT + V_GAP),
+          };
+        });
+      });
+
+    set((state) => ({
+      nodes: nodes.map((n) => ({ ...n, position: pos[n.id] ?? n.position })),
+      layoutVersion: state.layoutVersion + 1,
+    }));
     get().saveToHistory();
   },
 }));

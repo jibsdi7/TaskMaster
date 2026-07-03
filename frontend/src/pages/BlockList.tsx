@@ -11,6 +11,10 @@ import ViewModule from '@mui/icons-material/ViewModule';
 import AddIcon from '@mui/icons-material/Add';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
+interface BlockVersion {
+  nodes: { node_id: string }[];
+}
+
 interface Block {
   id: number;
   name: string;
@@ -21,6 +25,7 @@ interface Block {
   is_active: boolean;
   creator_id: number;
   created_at: string;
+  versions?: BlockVersion[];
 }
 
 const BlockList = () => {
@@ -140,7 +145,8 @@ const BlockList = () => {
               No blocks yet
             </Typography>
             <Typography variant="body2" sx={{ color: '#444', textAlign: 'center', maxWidth: 340 }}>
-              Click <strong style={{ color: '#A0A0B4' }}>New Block</strong> to open the block editor and build one from scratch.
+              Click <strong style={{ color: '#A0A0B4' }}>New Block</strong> to build one from scratch by dragging nodes,
+              or use the <strong style={{ color: '#A0A0B4' }}>Record</strong> button inside the editor to capture real browser actions.
               Blocks appear in the node palette so you can import them into any workflow.
             </Typography>
             <Button
@@ -182,13 +188,26 @@ const BlockList = () => {
                   >
                     <ViewModule sx={{ fontSize: 16, color: '#7B96F9' }} />
                   </Box>
-                  {block.is_public && (
-                    <Chip
-                      label="Public"
-                      size="small"
-                      sx={{ backgroundColor: 'rgba(72,187,120,0.12)', color: '#48BB78', border: '1px solid rgba(72,187,120,0.2)', fontSize: '0.7rem' }}
-                    />
-                  )}
+                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                    {/* Node count badge */}
+                    {(() => {
+                      const nodeCount = block.versions?.[0]?.nodes?.length ?? null;
+                      return nodeCount !== null ? (
+                        <Chip
+                          label={`${nodeCount} node${nodeCount !== 1 ? 's' : ''}`}
+                          size="small"
+                          sx={{ backgroundColor: '#1e1e1e', color: '#666', border: '1px solid #2a2a2a', fontSize: '0.7rem' }}
+                        />
+                      ) : null;
+                    })()}
+                    {block.is_public && (
+                      <Chip
+                        label="Public"
+                        size="small"
+                        sx={{ backgroundColor: 'rgba(72,187,120,0.12)', color: '#48BB78', border: '1px solid rgba(72,187,120,0.2)', fontSize: '0.7rem' }}
+                      />
+                    )}
+                  </Box>
                 </Box>
 
                 {/* Name */}

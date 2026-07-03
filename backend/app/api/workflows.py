@@ -429,8 +429,10 @@ async def execute_workflow(
     db.refresh(workflow_run)
     
     try:
-        # Get URL from request body if provided
+        # Get URL and speed params from request body
         url = request_body.get("url") if request_body else None
+        step_delay_ms = int((request_body or {}).get("step_delay_ms", 0))
+        step_delay_ms = max(0, min(step_delay_ms, 10000))  # clamp 0–10 s
         print(f"\n{'='*80}")
         print(f"[EXECUTE] Starting workflow execution")
         print(f"[EXECUTE] Workflow ID: {workflow_id}")
@@ -508,11 +510,11 @@ async def execute_workflow(
                     nodes=nodes_data,
                     edges=edges_data,
                     inputs={},
-                    run_id=run_id
+                    run_id=run_id,
+                    step_delay_ms=step_delay_ms,
                 )
             
             print(f"[EXECUTE] Calling executor.execute() via asyncio.to_thread...")
-            # Use asyncio.to_thread to properly isolate sync code from async context
             result = await asyncio.to_thread(run_sync_executor)
             print(f"[EXECUTE] Execution completed. Result keys: {result.keys() if result else 'None'}")
         else:
@@ -522,7 +524,8 @@ async def execute_workflow(
                 nodes=nodes_data,
                 edges=edges_data,
                 inputs={},
-                run_id=run_id
+                run_id=run_id,
+                step_delay_ms=step_delay_ms,
             )
         
         # Update workflow run with results
@@ -577,6 +580,124 @@ async def execute_workflow(
             detail=f"Workflow execution failed: {str(e)}"
         )
 
+def _resolve_block_nodes(
+    nodes_data: List[Dict[str, Any]],
+    edges_data: List[Dict[str, Any]],
+    db: Session,
+    current_user_id: int,
+    _visited: set = None,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Walk nodes_data and expand any BLOCK node inline by fetching its definition.
+    Returns a new (nodes, edges) pair with every BLOCK replaced by its sub-nodes.
+    Cycles are prevented via _visited block_id tracking.
+    """
+    if _visited is None:
+        _visited = set()
+
+    resolved_nodes: List[Dict[str, Any]] = []
+    resolved_edges: List[Dict[str, Any]] = []
+
+    for node in nodes_data:
+        if node.get("node_type") != "BLOCK":
+            resolved_nodes.append(node)
+            continue
+
+        block_id = (node.get("config") or {}).get("block_id")
+        block_label = node.get("label", "Block")
+
+        if not block_id or block_id in _visited:
+            # Can't resolve or would cause cycle — emit a comment placeholder
+            resolved_nodes.append({
+                **node,
+                "node_type": "_BLOCK_COMMENT",
+                "label": block_label,
+            })
+            continue
+
+        # Fetch block definition from DB
+        block = db.query(models.Block).filter(
+            models.Block.id == block_id,
+            (models.Block.creator_id == current_user_id) | (models.Block.is_public == True)
+        ).first()
+        version = db.query(models.BlockVersion).filter(
+            models.BlockVersion.block_id == block_id,
+            models.BlockVersion.version == block.current_version
+        ).first() if block else None
+
+        if not block or not version or not version.nodes:
+            resolved_nodes.append({
+                **node,
+                "node_type": "_BLOCK_COMMENT",
+                "label": block_label,
+            })
+            continue
+
+        # Prefix all sub-node IDs to avoid collision with the outer workflow
+        prefix = f"blk{block_id}_{node['node_id']}_"
+        sub_nodes = [
+            {
+                "node_id": prefix + n["node_id"],
+                "node_type": n.get("node_type", ""),
+                "label": n.get("label", ""),
+                "config": n.get("config") or {},
+                "_block_name": block.name,
+            }
+            for n in version.nodes
+        ]
+        sub_edges = [
+            {
+                "edge_id": prefix + e["edge_id"],
+                "source_node_id": prefix + e["source_node_id"],
+                "target_node_id": prefix + e["target_node_id"],
+            }
+            for e in (version.edges or [])
+        ]
+
+        # Recursively expand nested BLOCK nodes inside this block
+        new_visited = _visited | {block_id}
+        sub_nodes, sub_edges = _resolve_block_nodes(
+            sub_nodes, sub_edges, db, current_user_id, new_visited
+        )
+
+        # Determine entry/exit sub-node IDs to re-wire outer edges
+        sub_target_ids = {e["target_node_id"] for e in sub_edges}
+        sub_source_ids = {e["source_node_id"] for e in sub_edges}
+        entry_id = next(
+            (n["node_id"] for n in sub_nodes if n["node_id"] not in sub_target_ids),
+            sub_nodes[0]["node_id"] if sub_nodes else None,
+        )
+        exit_id = next(
+            (n["node_id"] for n in reversed(sub_nodes) if n["node_id"] not in sub_source_ids),
+            sub_nodes[-1]["node_id"] if sub_nodes else None,
+        )
+
+        # Mark entry node with the block name for comment generation
+        if sub_nodes:
+            sub_nodes[0]["_block_start"] = block.name
+
+        resolved_nodes.extend(sub_nodes)
+        resolved_edges.extend(sub_edges)
+
+        # Re-wire outer edges that pointed at/from this BLOCK node
+        for edge in edges_data:
+            if edge["source_node_id"] == node["node_id"] and exit_id:
+                resolved_edges.append({**edge, "source_node_id": exit_id})
+            elif edge["target_node_id"] == node["node_id"] and entry_id:
+                resolved_edges.append({**edge, "target_node_id": entry_id})
+
+    # Pass through outer edges that don't touch any BLOCK node
+    block_node_ids = {n["node_id"] for n in nodes_data if n.get("node_type") == "BLOCK"}
+    for edge in edges_data:
+        if (
+            edge["source_node_id"] not in block_node_ids
+            and edge["target_node_id"] not in block_node_ids
+        ):
+            resolved_edges.append(edge)
+
+    return resolved_nodes, resolved_edges
+
+
 @router.get("/{workflow_id}/export-script", response_class=PlainTextResponse)
 async def export_workflow_script(
     workflow_id: int,
@@ -585,7 +706,7 @@ async def export_workflow_script(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Export a workflow as a Playwright script"""
+    """Export a workflow as a Playwright script, inlining any BLOCK nodes"""
     workflow = db.query(models.Workflow).filter(
         models.Workflow.id == workflow_id,
         models.Workflow.creator_id == current_user.id,
@@ -611,6 +732,11 @@ async def export_workflow_script(
         }
         for edge in workflow.edges
     ]
+
+    # Expand BLOCK nodes inline before generating code
+    nodes_data, edges_data = _resolve_block_nodes(
+        nodes_data, edges_data, db, current_user.id
+    )
 
     script = ScriptGenerator.generate(
         nodes=nodes_data,

@@ -15,6 +15,7 @@ import {
   AccordionDetails,
   Tooltip,
   Chip,
+  Button,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -22,7 +23,7 @@ import {
   ContentCopy as CopyIcon,
   ChevronRight as CollapseIcon,
   ChevronLeft as ExpandIcon,
-  Tune as TuneIcon,
+  CallSplit as DismantleIcon,
 } from '@mui/icons-material';
 import { useWorkflowStore } from '../../store/workflowStore';
 import { toast } from 'react-toastify';
@@ -75,13 +76,14 @@ interface BlockSummary {
 }
 
 const NodeInspector = () => {
-  const { nodes, selectedNodeId, updateNode, setSelectedNodeId } = useWorkflowStore();
+  const { nodes, selectedNodeId, updateNode, setSelectedNodeId, expandBlockNode } = useWorkflowStore();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
   const [localData, setLocalData] = useState<any>({});
   const [collapsed, setCollapsed] = useState(false);
   const [availableBlocks, setAvailableBlocks] = useState<BlockSummary[]>([]);
   const [blocksLoading, setBlocksLoading] = useState(false);
+  const [dismantling, setDismantling] = useState(false);
 
   // Open panel whenever a node is selected
   useEffect(() => {
@@ -117,6 +119,35 @@ const NodeInspector = () => {
       .catch(() => setAvailableBlocks([]))
       .finally(() => setBlocksLoading(false));
   }, [selectedNode?.id, selectedNode?.data.nodeType]);
+
+  // Dismantle: fetch block definition then expand the BLOCK node inline
+  const handleDismantle = async () => {
+    if (!selectedNodeId || !selectedNode) return;
+    const blockId = selectedNode.data.config?.block_id;
+    if (!blockId) {
+      toast.error('This block has no block_id — cannot dismantle');
+      return;
+    }
+    setDismantling(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:8000/api/blocks/${blockId}/definition`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Failed to load block definition (${res.status})`);
+      const def = await res.json();
+      if (!def.nodes?.length) {
+        toast.warning('Block has no nodes to expand');
+        return;
+      }
+      expandBlockNode(selectedNodeId, def.nodes, def.edges ?? []);
+      toast.success(`"${def.block_name}" dismantled — nodes restored`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to dismantle block');
+    } finally {
+      setDismantling(false);
+    }
+  };
 
   const handleUpdate = (field: string, value: any) => {
     setLocalData((prev: any) => ({ ...prev, [field]: value }));
@@ -386,6 +417,39 @@ const NodeInspector = () => {
                     </Box>
                   ) : null;
                 })()}
+
+                {/* Dismantle button — always visible for any BLOCK node with a block_id */}
+                {localData.block_id && (
+                  <Box sx={{ mb: 2 }}>
+                    <Button
+                      fullWidth
+                      size="small"
+                      variant="outlined"
+                      color="warning"
+                      disabled={dismantling}
+                      onClick={handleDismantle}
+                      startIcon={dismantling
+                        ? <CircularProgress size={14} sx={{ color: 'inherit' }} />
+                        : <DismantleIcon sx={{ fontSize: 16 }} />}
+                      sx={{
+                        fontSize: '0.78rem',
+                        borderColor: 'rgba(246,173,85,0.4)',
+                        color: '#F6AD55',
+                        textTransform: 'none',
+                        '&:hover': {
+                          borderColor: '#F6AD55',
+                          backgroundColor: 'rgba(246,173,85,0.08)',
+                        },
+                        '&.Mui-disabled': { opacity: 0.5 },
+                      }}
+                    >
+                      {dismantling ? 'Dismantling…' : 'Dismantle Block'}
+                    </Button>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.75, color: '#555', lineHeight: 1.4 }}>
+                      Replaces this block node with its individual steps inline.
+                    </Typography>
+                  </Box>
+                )}
               </>
             )}
 
