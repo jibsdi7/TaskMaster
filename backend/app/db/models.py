@@ -66,12 +66,40 @@ class CredentialType(str, enum.Enum):
     CUSTOM = "custom"
 
 
+class ScheduleType(str, enum.Enum):
+    ONE_TIME = "one_time"
+    CRON = "cron"
+
+
 class AuditAction(str, enum.Enum):
+    # Auth
+    USER_REGISTERED    = "user_registered"
+    USER_LOGIN         = "user_login"
+    USER_LOGOUT        = "user_logout"
+
+    # Workflows
+    WORKFLOW_CREATED   = "workflow_created"
+    WORKFLOW_UPDATED   = "workflow_updated"
+    WORKFLOW_DELETED   = "workflow_deleted"
+    WORKFLOW_EXECUTED  = "workflow_executed"
+    WORKFLOW_EXPORTED  = "workflow_exported"
+
+    # Recording
+    RECORDING_STARTED  = "recording_started"
+    RECORDING_STOPPED  = "recording_stopped"
+    SCRIPT_IMPORTED    = "script_imported"
+
+    # Blocks
+    BLOCK_CREATED      = "block_created"
+    BLOCK_UPDATED      = "block_updated"
+    BLOCK_DELETED      = "block_deleted"
+
+    # Credentials (existing)
     CREDENTIAL_CREATED = "credential_created"
     CREDENTIAL_UPDATED = "credential_updated"
     CREDENTIAL_DELETED = "credential_deleted"
-    CREDENTIAL_USED = "credential_used"
-    CREDENTIAL_VIEWED = "credential_viewed"
+    CREDENTIAL_USED    = "credential_used"
+    CREDENTIAL_VIEWED  = "credential_viewed"
 
 
 class User(Base):
@@ -334,5 +362,29 @@ class WorkflowLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     run = relationship("WorkflowRun", back_populates="workflow_logs")
+
+class ScheduledJob(Base):
+    __tablename__ = "scheduled_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=False)
+    creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    schedule_type = Column(SQLEnum(ScheduleType), nullable=False)
+    # One-time: UTC datetime to fire at
+    run_at = Column(DateTime, nullable=True)
+    # Cron: standard 5-field expression e.g. "0 9 * * 1"
+    cron_expression = Column(String, nullable=True)
+    is_enabled = Column(Boolean, default=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_run_status = Column(String, nullable=True)   # "success" | "failed"
+    run_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    workflow = relationship("Workflow")
+    creator = relationship("User")
+
 
 # Made with Bob

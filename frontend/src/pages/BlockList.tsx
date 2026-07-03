@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { fmtDate } from '../utils/dateUtils';
+import { authHeaders, BASE_URL } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Button, Chip, CircularProgress, Alert,
@@ -34,9 +36,8 @@ const BlockList = () => {
     try {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8000/api/blocks', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const response = await fetch(`${BASE_URL}/api/blocks`, {
+        headers: authHeaders(),
       });
       if (!response.ok) throw new Error(`Failed to fetch blocks: ${response.statusText}`);
       setBlocks(await response.json());
@@ -56,10 +57,9 @@ const BlockList = () => {
     if (!confirm('Delete this block? Workflows using it will lose the reference.')) return;
     setDeleting(blockId);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:8000/api/blocks/${blockId}`, {
+      const res = await fetch(`${BASE_URL}/api/blocks/${blockId}`, {
         method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authHeaders(),
       });
       if (!res.ok) throw new Error('Failed to delete block');
       setBlocks((prev) => prev.filter((b) => b.id !== blockId));
@@ -231,9 +231,7 @@ const BlockList = () => {
                 </Box>
 
                 <Typography variant="caption" sx={{ color: '#444', mb: 2 }}>
-                  {new Date(
-                    /[Z+\-]\d*$/.test(block.created_at) ? block.created_at : block.created_at + 'Z'
-                  ).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  {fmtDate(block.created_at)}
                 </Typography>
 
                 {/* Actions */}

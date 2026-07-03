@@ -1,7 +1,7 @@
 """
 Authentication API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
@@ -17,6 +17,7 @@ from app.core.security import (
     get_current_user
 )
 from app.core.config import settings
+from app.core.audit import log_audit
 
 router = APIRouter()
 
@@ -46,14 +47,22 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     )
     
     db.add(db_user)
+    db.flush()
+
+    log_audit(
+        db, db_user.id, models.AuditAction.USER_REGISTERED,
+        resource_type="user", resource_id=db_user.id,
+        details={"username": db_user.username, "email": db_user.email, "role": db_user.role.value},
+    )
     db.commit()
     db.refresh(db_user)
-    
+
     return db_user
 
 
 @router.post("/login", response_model=Token)
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
@@ -83,7 +92,16 @@ async def login(
     refresh_token = create_refresh_token(
         data={"sub": user.id, "username": user.username}
     )
-    
+
+    log_audit(
+        db, user.id, models.AuditAction.USER_LOGIN,
+        resource_type="user", resource_id=user.id,
+        details={"username": user.username},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.commit()
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,

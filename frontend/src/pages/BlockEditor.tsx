@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { authHeaders, BASE_URL } from '../api/client';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactFlow, {
   Background, Controls, MiniMap, ReactFlowProvider,
@@ -272,9 +273,8 @@ const BlockEditor = () => {
     const load = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem('token');
-        const res = await fetch(`http://localhost:8000/api/blocks/${id}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        const res = await fetch(`${BASE_URL}/api/blocks/${id}`, {
+          headers: authHeaders(),
         });
         if (!res.ok) throw new Error('Block not found');
         const block = await res.json();
@@ -284,8 +284,8 @@ const BlockEditor = () => {
         setBlockVersion(block.current_version);
 
         // Load current version nodes/edges
-        const defRes = await fetch(`http://localhost:8000/api/blocks/${id}/definition`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        const defRes = await fetch(`${BASE_URL}/api/blocks/${id}/definition`, {
+          headers: authHeaders(),
         });
         if (defRes.ok) {
           const def = await defRes.json();
@@ -361,16 +361,12 @@ const BlockEditor = () => {
     if (!blockName.trim()) { toast.error('Block name is required'); return; }
     setSaving(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers: any = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
+      const headers = { ...authHeaders(), 'Content-Type': 'application/json' };
       const nodesPayload = serialiseNodes();
       const edgesPayload = serialiseEdges();
 
       if (isNew) {
-        const res = await fetch('http://localhost:8000/api/blocks', {
+        const res = await fetch(`${BASE_URL}/api/blocks`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -388,7 +384,7 @@ const BlockEditor = () => {
         toast.success(`Block "${created.name}" created`);
         navigate(`/blocks/${created.id}/edit`, { replace: true });
       } else {
-        const res = await fetch(`http://localhost:8000/api/blocks/${id}`, {
+        const res = await fetch(`${BASE_URL}/api/blocks/${id}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({
