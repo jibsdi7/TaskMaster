@@ -2,6 +2,7 @@
 Enhanced Workflow Execution Engine with Branching, Loops, and Parallel Execution
 """
 import asyncio
+import re
 import sys
 from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
@@ -11,6 +12,61 @@ import time
 
 from app.core.config import settings
 from app.db.models import NodeType, WorkflowStatus
+from app.services.self_healing import AsyncSelfHealingLocator
+
+
+def _resolve_single_locator(page, selector: str):
+    """Resolve a single (non-chained) structured selector to a Playwright locator."""
+    # :nth-match(N) modifier
+    nth_index = None
+    nth_m = re.search(r':nth-match\((\d+)\)$', selector)
+    if nth_m:
+        nth_index = int(nth_m.group(1))
+        selector = selector[:nth_m.start()]
+
+    # role=X[name="Y"]
+    m = re.match(r'^role=([^\[]+)\[name=["\']([^"\']+)["\']\]', selector)
+    if m:
+        locator = page.get_by_role(m.group(1), name=m.group(2))
+        return locator.nth(nth_index) if nth_index is not None else locator
+
+    # role=X (no name)
+    m = re.match(r'^role=(\S+)$', selector)
+    if m:
+        locator = page.get_by_role(m.group(1))
+        return locator.nth(nth_index) if nth_index is not None else locator
+
+    # text="Y"
+    m = re.match(r'^text=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_text(m.group(1))
+
+    # placeholder="Y"
+    m = re.match(r'^placeholder=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_placeholder(m.group(1))
+
+    # label="Y"
+    m = re.match(r'^label=["\']([^"\']+)["\']$', selector)
+    if m:
+        return page.get_by_label(m.group(1))
+
+    # fallback: CSS / XPath
+    locator = page.locator(selector)
+    return locator.nth(nth_index) if nth_index is not None else locator
+
+
+def _resolve_locator(page, selector: str):
+    """Return the correct Playwright locator object for a structured selector string.
+    Supports chained selectors (role=X >> role=Y) and all formats from _extract_selector.
+    """
+    if " >> " in selector:
+        parts = selector.split(" >> ")
+        locator = _resolve_single_locator(page, parts[0].strip())
+        for part in parts[1:]:
+            locator = locator.locator(_resolve_single_locator(page, part.strip()))
+        return locator
+    return _resolve_single_locator(page, selector)
 
 # Fix for Windows asyncio subprocess issue
 if sys.platform == 'win32':
@@ -59,12 +115,15 @@ class WorkflowExecutor:
         nodes: List[Dict[str, Any]],
         edges: List[Dict[str, Any]],
         inputs: Dict[str, Any] = None,
-        run_id: str = None
+        run_id: str = None,
+        step_delay_ms: int = 0,
     ) -> Dict[str, Any]:
         """Execute workflow with enhanced features"""
         if inputs is None:
             inputs = {}
-        
+
+        self.step_delay_ms = max(0, step_delay_ms)
+
         # Initialize execution context with inputs
         for key, value in inputs.items():
             self.execution_context.set_variable(key, value)
@@ -252,6 +311,10 @@ class WorkflowExecutor:
         # Execute node with retry logic
         result = await self._execute_node_with_retry(node, run_id)
         executed_nodes.add(node_id)
+
+        # Inter-node delay for speed control (skip for DELAY nodes — they manage their own wait)
+        if self.step_delay_ms > 0 and node.get("node_type") != "DELAY":
+            await asyncio.sleep(self.step_delay_ms / 1000)
 
         # Store result in context
         self.execution_context.set_node_result(node_id, result)
@@ -490,37 +553,54 @@ class WorkflowExecutor:
         return {"url": url}
     
     async def _execute_click(self, config: Dict[str, Any]) -> Any:
-        """Execute click"""
+        """Execute click with self-healing selector fallback."""
         selector = config.get("selector")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        
-        # Try different locator strategies
+
+        if not selector:
+            self._log("WARNING", "Click node has no selector, skipping")
+            return {"skipped": True, "reason": "No selector provided"}
+
+        healer = AsyncSelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
-            await self.page.get_by_role("button", name=selector).click(timeout=timeout)
-        except:
-            try:
-                await self.page.get_by_text(selector).click(timeout=timeout)
-            except:
-                await self.page.locator(selector).click(timeout=timeout)
-        
-        return {"clicked": selector}
-    
+            locator, used_selector, recovery_log = await healer.find(selector)
+            await locator.click(timeout=timeout)
+            return {
+                "clicked": selector,
+                "used_selector": used_selector,
+                "self_healed": used_selector != selector,
+                "recovery_log": recovery_log,
+            }
+        except Exception as e:
+            # TargetClosedError — click triggered full-page navigation; the click worked.
+            if "Target page, context or browser has been closed" in str(e):
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
+                except Exception:
+                    pass
+                return {"clicked": selector, "navigated": True}
+            self._log("ERROR", f"Click failed after self-healing: {str(e)}")
+            raise
+
     async def _execute_type(self, config: Dict[str, Any]) -> Any:
-        """Execute type/fill"""
+        """Execute type/fill with self-healing selector fallback."""
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
-        
-        # Try different locator strategies
+
+        healer = AsyncSelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
-            await self.page.get_by_role("textbox", name=selector).fill(value, timeout=timeout)
-        except:
-            try:
-                await self.page.get_by_label(selector).fill(value, timeout=timeout)
-            except:
-                await self.page.locator(selector).fill(value, timeout=timeout)
-        
-        return {"typed": value}
+            locator, used_selector, recovery_log = await healer.find(selector)
+            await locator.fill(value, timeout=timeout)
+            return {
+                "typed": value,
+                "used_selector": used_selector,
+                "self_healed": used_selector != selector,
+                "recovery_log": recovery_log,
+            }
+        except Exception as e:
+            self._log("ERROR", f"Type/fill failed after self-healing: {str(e)}")
+            raise
     
     async def _execute_select(self, config: Dict[str, Any]) -> Any:
         """Execute select option"""

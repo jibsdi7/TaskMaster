@@ -28,7 +28,10 @@ async def create_block(
         creator_id=current_user.id,
         category=block_data.category,
         is_public=block_data.is_public,
-        metadata=block_data.metadata
+        meta_data=block_data.metadata,
+        # workflow_definition is a legacy NOT NULL column — populate it with the
+        # nodes/edges so the constraint is satisfied; BlockVersion holds the real data.
+        workflow_definition={"nodes": block_data.nodes, "edges": block_data.edges},
     )
     
     db.add(db_block)

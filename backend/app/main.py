@@ -1,5 +1,5 @@
 """
-TaskMaster - Main FastAPI Application
+FlowWeaver - Main FastAPI Application
 """
 import sys
 import asyncio
@@ -15,6 +15,7 @@ from app.api.executions import router as executions_router
 from app.api.projects import router as projects_router
 from app.api.audit import router as audit_router
 from app.api.scheduler import router as scheduler_router
+from app.api.dashboard import router as dashboard_router
 from app.core.config import settings
 from app.db.database import engine
 from app.db import models
@@ -82,8 +83,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TaskMaster API",
-    description="User Journey Recorder and Workflow Automation Platform",
+    title="FlowWeaver API",
+    description="Visual workflow automation platform",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -106,13 +107,14 @@ app.include_router(blocks_router, prefix="/api/blocks", tags=["Blocks"])
 app.include_router(executions_router, prefix="/api/executions", tags=["Executions"])
 app.include_router(audit_router, prefix="/api/audit", tags=["Audit"])
 app.include_router(scheduler_router, prefix="/api/scheduler", tags=["Scheduler"])
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 
 
 @app.get("/")
 async def root():
     """Root endpoint"""
     return {
-        "message": "TaskMaster API",
+        "message": "FlowWeaver API",
         "version": "1.0.0",
         "docs": "/docs",
         "dev_auth_bypass": settings.DEV_AUTH_BYPASS
