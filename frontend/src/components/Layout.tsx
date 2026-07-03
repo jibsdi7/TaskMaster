@@ -67,7 +67,7 @@ const Layout = () => {
           }}
         >
           {/* Logo mark */}
-          <Tooltip title="Flow Weaver" placement="right">
+          <Tooltip title="FlowWeaver" placement="right">
             <Box
               onClick={() => navigate('/workflows')}
               sx={{
@@ -89,7 +89,7 @@ const Layout = () => {
             >
               <img
                 src="/logo.svg"
-                alt="Flow Weaver"
+                alt="FlowWeaver"
                 style={{ width: 38, height: 38, borderRadius: 11, display: 'block' }}
               />
             </Box>

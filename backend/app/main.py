@@ -1,5 +1,5 @@
 """
-Flow Weaver - Main FastAPI Application
+FlowWeaver - Main FastAPI Application
 """
 import sys
 import asyncio
@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Flow Weaver API",
+    title="FlowWeaver API",
     description="Visual workflow automation platform",
     version="1.0.0",
     lifespan=lifespan
@@ -99,7 +99,7 @@ app.include_router(executions_router, prefix="/api/executions", tags=["Execution
 async def root():
     """Root endpoint"""
     return {
-        "message": "Flow Weaver API",
+        "message": "FlowWeaver API",
         "version": "1.0.0",
         "docs": "/docs",
         "dev_auth_bypass": settings.DEV_AUTH_BYPASS

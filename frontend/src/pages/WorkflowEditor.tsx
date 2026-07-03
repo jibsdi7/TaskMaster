@@ -323,7 +323,7 @@ const WorkflowEditor = () => {
     const data = {
       id: workflowId,
       name: workflowName,
-      description: 'Exported from Flow Weaver',
+      description: 'Exported from FlowWeaver',
       nodes,
       edges,
     };

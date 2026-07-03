@@ -1,6 +1,6 @@
 """
 One-time migration: replace all 'TaskMaster' references in the database
-with 'Flow Weaver'.  Safe to run multiple times (idempotent).
+with 'FlowWeaver'.  Safe to run multiple times (idempotent).
 
 Run from the backend/ directory:
     python migrate_rebrand.py
@@ -24,7 +24,7 @@ def run():
             models.Workflow.description.like('%TaskMaster%')
         ).all()
         for wf in workflows:
-            wf.description = wf.description.replace('TaskMaster', 'Flow Weaver')
+            wf.description = wf.description.replace('TaskMaster', 'FlowWeaver')
             updated += 1
 
         # ── Blocks ─────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ def run():
             models.Block.description.like('%TaskMaster%')
         ).all()
         for b in blocks:
-            b.description = b.description.replace('TaskMaster', 'Flow Weaver')
+            b.description = b.description.replace('TaskMaster', 'FlowWeaver')
             updated += 1
 
         db.commit()
