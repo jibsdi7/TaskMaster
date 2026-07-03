@@ -312,7 +312,7 @@ class WorkflowExecutor:
         executed_nodes.add(node_id)
 
         # Inter-node delay for speed control (skip for DELAY nodes — they manage their own wait)
-        if getattr(self, 'step_delay_ms', 0) > 0 and node.get("node_type") != "DELAY":
+        if self.step_delay_ms > 0 and node.get("node_type") != "DELAY":
             await asyncio.sleep(self.step_delay_ms / 1000)
 
         # Store result in context

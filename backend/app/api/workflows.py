@@ -631,10 +631,13 @@ def _resolve_block_nodes(
             models.Block.id == block_id,
             (models.Block.creator_id == current_user_id) | (models.Block.is_public == True)
         ).first()
-        version = db.query(models.BlockVersion).filter(
-            models.BlockVersion.block_id == block_id,
-            models.BlockVersion.version == block.current_version
-        ).first() if block else None
+        if block:
+            version = db.query(models.BlockVersion).filter(
+                models.BlockVersion.block_id == block_id,
+                models.BlockVersion.version == block.current_version
+            ).first()
+        else:
+            version = None
 
         if not block or not version or not version.nodes:
             resolved_nodes.append({

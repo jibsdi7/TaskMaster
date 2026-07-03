@@ -264,7 +264,7 @@ class WorkflowExecutorSync:
             executed_nodes.add(node_id)
 
             # Inter-node delay for speed control (skip for DELAY nodes)
-            if getattr(self, 'step_delay_ms', 0) > 0 and node.get("node_type") != "DELAY":
+            if self.step_delay_ms > 0 and node.get("node_type") != "DELAY":
                 time.sleep(self.step_delay_ms / 1000)
 
             # Store result in context
