@@ -17,9 +17,9 @@ import { useAuthStore } from '../store/authStore';
 const NAV_W = 56;
 
 const navItems = [
-  { label: 'Workflows', icon: WorkflowIcon, path: '/workflows' },
+  { label: 'Workflows',  icon: WorkflowIcon,   path: '/workflows' },
   { label: 'Executions', icon: ExecutionsIcon, path: '/executions' },
-  { label: 'Blocks', icon: BlocksIcon, path: '/blocks' },
+  { label: 'Blocks',     icon: BlocksIcon,     path: '/blocks' },
 ];
 
 const Layout = () => {
@@ -66,10 +66,10 @@ const Layout = () => {
             flexShrink: 0,
           }}
         >
-          {/* Logo mark */}
-          <Tooltip title="FlowWeaver" placement="right">
+          {/* Logo mark — navigates to Dashboard */}
+          <Tooltip title="Dashboard" placement="right">
             <Box
-              onClick={() => navigate('/workflows')}
+              onClick={() => navigate('/dashboard')}
               sx={{
                 width: 38,
                 height: 38,
@@ -81,6 +81,10 @@ const Layout = () => {
                 cursor: 'pointer',
                 flexShrink: 0,
                 transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                outline: location.pathname.startsWith('/dashboard')
+                  ? '2px solid rgba(91,124,246,0.6)'
+                  : '2px solid transparent',
+                outlineOffset: '2px',
                 '&:hover': {
                   transform: 'scale(1.07)',
                   boxShadow: '0 4px 16px rgba(91,124,246,0.45)',

@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box } from '@mui/material';
 
 import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
 import WorkflowEditor from './pages/WorkflowEditor';
 import WorkflowList from './pages/WorkflowList';
 import ExecutionList from './pages/ExecutionList';
@@ -28,8 +29,9 @@ function App() {
         
         {isAuthenticated ? (
           <Route path="/" element={<Layout />}>
-            <Route index element={<Navigate to="/workflows" replace />} />
-            <Route path="workflows" element={<WorkflowList />} />
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="workflows" element={<WorkflowList />} />
             <Route path="workflows/:id" element={<WorkflowEditor />} />
             <Route path="workflows/new" element={<WorkflowEditor />} />
             <Route path="executions" element={<ExecutionList />} />

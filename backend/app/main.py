@@ -13,6 +13,7 @@ from app.api.blocks import router as blocks_router
 from app.api.auth import router as auth_router
 from app.api.executions import router as executions_router
 from app.api.projects import router as projects_router
+from app.api.dashboard import router as dashboard_router
 from app.core.config import settings
 from app.db.database import engine
 from app.db import models
@@ -93,6 +94,7 @@ app.include_router(workflows_router, prefix="/api/workflows", tags=["Workflows"]
 app.include_router(recorder_router, prefix="/api/recorder", tags=["Recorder"])
 app.include_router(blocks_router, prefix="/api/blocks", tags=["Blocks"])
 app.include_router(executions_router, prefix="/api/executions", tags=["Executions"])
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 
 
 @app.get("/")
