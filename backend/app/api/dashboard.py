@@ -118,7 +118,7 @@ async def get_dashboard(
         .all()
     ) if wf_ids else []
 
-    status_breakdown = {str(r.status).lower(): r.count for r in status_rows}
+    status_breakdown = {r.status.value: r.count for r in status_rows}
 
     # ── Workflow distribution (top 10 by run count) ───────────────────
     dist_rows = (
@@ -149,13 +149,45 @@ async def get_dashboard(
         {
             "run_id": run.run_id,
             "workflow_name": wf_name,
-            "status": str(run.status).lower(),
+            "status": run.status.value,
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,
             "duration_seconds": run.duration_seconds,
             "triggered_by": "manual",
         }
         for run, wf_name in recent_runs
+    ]
+
+    # ── Recent workflows created (last 10) ────────────────────────────
+    recent_wf_rows = (
+        db.query(models.Workflow)
+        .filter(models.Workflow.creator_id == current_user.id)
+        .order_by(models.Workflow.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    recent_workflows_created = [
+        {
+            "name": wf.name,
+            "created_at": wf.created_at.isoformat() if wf.created_at else None,
+        }
+        for wf in recent_wf_rows
+    ]
+
+    # ── Recent blocks created (last 10) ──────────────────────────────
+    recent_block_rows = (
+        db.query(models.Block)
+        .filter(models.Block.creator_id == current_user.id)
+        .order_by(models.Block.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    recent_blocks_created = [
+        {
+            "name": block.name,
+            "created_at": block.created_at.isoformat() if block.created_at else None,
+        }
+        for block in recent_block_rows
     ]
 
     return {
@@ -171,6 +203,8 @@ async def get_dashboard(
         "statusBreakdown": status_breakdown,
         "workflowDistribution": workflow_distribution,
         "recentExecutions": recent_executions,
+        "recentWorkflowsCreated": recent_workflows_created,
+        "recentBlocksCreated": recent_blocks_created,
     }
 
 # Made with Bob
