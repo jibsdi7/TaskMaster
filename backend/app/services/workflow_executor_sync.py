@@ -452,6 +452,24 @@ class WorkflowExecutorSync:
             locator = locator.nth(nth_index)
         return locator
     
+    @staticmethod
+    def _is_strict_mode_violation(error: Exception) -> bool:
+        """Return True when Playwright refuses because a selector matched >1 element."""
+        return "strict mode violation" in str(error)
+
+    def _resolve_strict_locator(self, locator, selector: str):
+        """
+        When a selector matches multiple elements, fall back to the first visible one.
+        Logs a warning so the user knows the selector is ambiguous.
+        """
+        self._log(
+            "WARNING",
+            f"Selector '{selector}' matched multiple elements (strict mode violation). "
+            "Using the first visible match. Consider making the selector more specific "
+            "in the workflow node config.",
+        )
+        return locator.first
+
     def _execute_click(self, config: Dict[str, Any]) -> Any:
         """Execute click with self-healing selector fallback."""
         selector = config.get("selector")
@@ -464,7 +482,14 @@ class WorkflowExecutorSync:
         healer = SelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
             locator, used_selector, recovery_log = healer.find(selector)
-            locator.click(timeout=timeout)
+            try:
+                locator.click(timeout=timeout)
+            except Exception as e:
+                if self._is_strict_mode_violation(e):
+                    locator = self._resolve_strict_locator(locator, used_selector)
+                    locator.click(timeout=timeout)
+                else:
+                    raise
             return {
                 "clicked": selector,
                 "used_selector": used_selector,
@@ -491,7 +516,14 @@ class WorkflowExecutorSync:
         healer = SelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
             locator, used_selector, recovery_log = healer.find(selector)
-            locator.click(timeout=timeout)
+            try:
+                locator.click(timeout=timeout)
+            except Exception as e:
+                if self._is_strict_mode_violation(e):
+                    locator = self._resolve_strict_locator(locator, used_selector)
+                    locator.click(timeout=timeout)
+                else:
+                    raise
             locator.press("Control+a")
             locator.fill(value)
             locator.press("Tab")

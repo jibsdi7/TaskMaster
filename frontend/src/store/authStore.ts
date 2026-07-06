@@ -81,6 +81,12 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
+      // After rehydrating from localStorage, always re-apply dev mode if active
+      onRehydrateStorage: () => (state) => {
+        if (isDevelopmentMode && state) {
+          Object.assign(state, getInitialState());
+        }
+      },
     }
   )
 );

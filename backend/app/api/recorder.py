@@ -12,6 +12,7 @@ from app.core.security import get_current_user
 from app.services.recorder import RecorderService, PlaywrightScriptParser
 from app.services.action_normalizer import ActionNormalizer
 from app.services.workflow_generator import WorkflowGeneratorService
+from app.core.audit import log_audit
 
 router = APIRouter()
 
@@ -55,6 +56,12 @@ async def start_recording(
             "output_file": result.get("output_file")
         }
         
+        log_audit(
+            db, current_user.id, models.AuditAction.RECORDING_STARTED,
+            resource_type="recording", details={"url": url},
+        )
+        db.commit()
+
         return {
             "session_id": result["session_id"],
             "status": "recording",
@@ -214,9 +221,20 @@ async def stop_recording(
             )
             db.add(db_edge)
 
+        log_audit(
+            db, current_user.id, models.AuditAction.RECORDING_STOPPED,
+            resource_type="workflow", resource_id=db_workflow.id,
+            details={"workflow_name": workflow_name, "node_count": len(valid_nodes), "url": session["url"]},
+        )
         db.commit()
         db.refresh(db_workflow)
         workflow_id = db_workflow.id
+    else:
+        log_audit(
+            db, current_user.id, models.AuditAction.RECORDING_STOPPED,
+            resource_type="recording", details={"saved_as_workflow": False},
+        )
+        db.commit()
 
     # Clean up session
     del active_sessions[current_user.id]
@@ -373,6 +391,11 @@ async def import_playwright_script(
         )
         db.add(db_edge)
 
+    log_audit(
+        db, current_user.id, models.AuditAction.SCRIPT_IMPORTED,
+        resource_type="workflow", resource_id=db_workflow.id,
+        details={"workflow_name": request.workflow_name, "nodes_count": len(parsed_nodes)},
+    )
     db.commit()
     db.refresh(db_workflow)
 

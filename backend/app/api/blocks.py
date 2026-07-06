@@ -9,6 +9,7 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas.block import BlockCreate, BlockUpdate, BlockResponse, BlockVersionResponse
 from app.core.security import get_current_user
+from app.core.audit import log_audit
 
 router = APIRouter()
 
@@ -49,9 +50,14 @@ async def create_block(
     )
     
     db.add(db_version)
+    log_audit(
+        db, current_user.id, models.AuditAction.BLOCK_CREATED,
+        resource_type="block", resource_id=db_block.id,
+        details={"name": db_block.name, "category": db_block.category},
+    )
     db.commit()
     db.refresh(db_block)
-    
+
     return db_block
 
 
@@ -154,10 +160,15 @@ async def update_block(
         
         db.add(db_version)
         block.current_version = new_version
-    
+
+    log_audit(
+        db, current_user.id, models.AuditAction.BLOCK_UPDATED,
+        resource_type="block", resource_id=block_id,
+        details={"name": block.name, "new_version": block.current_version},
+    )
     db.commit()
     db.refresh(block)
-    
+
     return block
 
 
@@ -179,9 +190,15 @@ async def delete_block(
             detail="Block not found or access denied"
         )
     
+    block_name = block.name
     db.delete(block)
+    log_audit(
+        db, current_user.id, models.AuditAction.BLOCK_DELETED,
+        resource_type="block", resource_id=block_id,
+        details={"name": block_name},
+    )
     db.commit()
-    
+
     return None
 
 
