@@ -1,21 +1,90 @@
-import { Box, Typography } from '@mui/material';
+import { useState } from 'react';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import {
+  Box, Card, CardContent, TextField, Button, Typography,
+  Alert, CircularProgress, Link,
+} from '@mui/material';
+import { loginApi, getMeApi } from '../api/auth';
+import { useAuthStore } from '../store/authStore';
 
 const Login = () => {
+  const navigate = useNavigate();
+  const login = useAuthStore((s) => s.login);
+
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const tokens = await loginApi({ username, password });
+      // Fetch full user profile with the fresh token
+      const user = await getMeApi(tokens.access_token);
+      login(tokens.access_token, tokens.refresh_token, {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        full_name: user.full_name,
+        role: user.role,
+      });
+      navigate('/workflows');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Login failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        bgcolor: 'background.default',
-      }}
-    >
-      <Typography variant="h4">Login Page - Coming Soon</Typography>
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', bgcolor: 'background.default' }}>
+      <Card sx={{ width: 380, p: 2 }}>
+        <CardContent>
+          <Typography variant="h5" fontWeight={700} mb={1}>TaskMaster</Typography>
+          <Typography variant="body2" color="text.secondary" mb={3}>Sign in to your account</Typography>
+
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoFocus
+              autoComplete="username"
+            />
+            <TextField
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+            <Button
+              type="submit"
+              variant="contained"
+              size="large"
+              disabled={loading}
+              startIcon={loading ? <CircularProgress size={18} color="inherit" /> : null}
+            >
+              {loading ? 'Signing in…' : 'Sign In'}
+            </Button>
+          </Box>
+
+          <Typography variant="body2" mt={3} textAlign="center">
+            Don't have an account?{' '}
+            <Link component={RouterLink} to="/register">Register</Link>
+          </Typography>
+        </CardContent>
+      </Card>
     </Box>
   );
 };
 
 export default Login;
-
-// Made with Bob

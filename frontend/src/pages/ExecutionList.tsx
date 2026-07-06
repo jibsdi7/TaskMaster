@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
+import { fmtDateTime } from '../utils/dateUtils';
+import { authHeaders, BASE_URL } from '../api/client';
 import {
   Box, Typography, Chip, CircularProgress, Alert,
   IconButton, Tooltip, Select, MenuItem, FormControl, InputLabel,
@@ -41,16 +43,7 @@ function formatDuration(seconds: number | null): string {
   return `${m}m ${s}s`;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  // Backend stores UTC timestamps without a timezone suffix — append Z so
-  // the browser treats them as UTC rather than local time.
-  const normalized = /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
-  return new Date(normalized).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
+const formatDate = fmtDateTime;
 
 const ExecutionList = () => {
   const navigate = useNavigate();
@@ -64,10 +57,9 @@ const ExecutionList = () => {
     try {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem('token');
       const params = statusFilter ? `?status_filter=${statusFilter}` : '';
-      const response = await fetch(`http://localhost:8000/api/executions${params}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const response = await fetch(`${BASE_URL}/api/executions${params}`, {
+        headers: authHeaders(),
       });
       if (!response.ok) throw new Error(`Failed to fetch executions: ${response.statusText}`);
       setExecutions(await response.json());
@@ -85,10 +77,9 @@ const ExecutionList = () => {
     if (!confirm('Delete this execution run?')) return;
     setDeleting(runId);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/api/executions/${runId}`, {
+      const response = await fetch(`${BASE_URL}/api/executions/${runId}`, {
         method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authHeaders(),
       });
       if (!response.ok) throw new Error('Failed to delete execution');
       setExecutions((prev) => prev.filter((ex) => ex.run_id !== runId));

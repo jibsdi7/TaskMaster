@@ -1,25 +1,31 @@
 # Core Framework
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.3
-pydantic-settings==2.1.0
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.3
+pydantic-settings>=2.1.0
 
 # Database
-sqlalchemy==2.0.25
-alembic==1.13.1
+sqlalchemy>=2.0.25
+alembic>=1.13.1
 # psycopg2-binary==2.9.9  # Not needed for SQLite (stdlib sqlite3 is used)
 
 # Redis & Celery
-redis==5.0.1
-celery==5.3.6
-flower==2.0.1
+redis>=5.0.1
+celery>=5.3.6
+flower>=2.0.1
+
+# Scheduler
+APScheduler>=3.10.0
+tzlocal>=5.2         # APScheduler runtime dep — local timezone resolution
+tzdata>=2024.1       # IANA timezone database (required by tzlocal on Windows)
+pytz>=2024.1         # UTC/named timezone objects used by APScheduler internals
 
 # Authentication
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
-python-multipart==0.0.6
-email-validator==2.3.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.1
+python-multipart>=0.0.6
+email-validator>=2.3.0
 
 # Playwright (Web Automation)
 playwright>=1.41.0
@@ -31,20 +37,20 @@ pyperclip==1.9.0
 # pywin32==306  # Windows only — uncomment for window management (DESKTOP_CLOSE_APP / DESKTOP_SWITCH_WINDOW)
 
 # HTTP Client
-httpx==0.26.0
-aiohttp==3.9.1
+httpx>=0.26.0
+aiohttp>=3.9.1
 
 # Utilities
-python-dotenv==1.0.0
-pillow==10.2.0
-pydantic-extra-types==2.4.1
-requests==2.34.0
+python-dotenv>=1.0.0
+pillow>=10.2.0
+pydantic-extra-types>=2.4.1
+python-docx>=1.1.2
+requests>=2.31.0
 
 # Testing
-pytest==7.4.4
-pytest-asyncio==0.23.3
-pytest-cov==4.1.0
-httpx==0.26.0
+pytest>=7.4.4
+pytest-asyncio>=0.23.3
+pytest-cov>=4.1.0
 
 # Development
 black>=23.12.1

@@ -17,8 +17,6 @@ function donutSegments(data: Record<string, number>) {
   const total = entries.reduce((s, [, v]) => s + v, 0);
   if (total === 0) return [];
   let startAngle = -90; // start at top
-  const R = 44, CX = 56, CY = 56, stroke = 18;
-  const circumference = 2 * Math.PI * R;
   return entries.map(([key, value]) => {
     const pct = value / total;
     const cfg = STATUS_CFG[key] ?? { label: key, color: '#888' };

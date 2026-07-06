@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authHeaders, BASE_URL } from '../../api/client';
 import {
   Box,
   Typography,
@@ -157,9 +158,8 @@ const NodeInspector = () => {
   useEffect(() => {
     if (selectedNode?.data.nodeType !== 'BLOCK') return;
     setBlocksLoading(true);
-    const token = localStorage.getItem('token');
-    fetch('http://localhost:8000/api/blocks', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    fetch(`${BASE_URL}/api/blocks`, {
+      headers: authHeaders(),
     })
       .then((r) => (r.ok ? r.json() : []))
       .then(setAvailableBlocks)
@@ -177,9 +177,8 @@ const NodeInspector = () => {
     }
     setDismantling(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:8000/api/blocks/${blockId}/definition`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const res = await fetch(`${BASE_URL}/api/blocks/${blockId}/definition`, {
+        headers: authHeaders(),
       });
       if (!res.ok) throw new Error(`Failed to load block definition (${res.status})`);
       const def = await res.json();

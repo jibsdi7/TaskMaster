@@ -35,7 +35,7 @@ const cards = [
   {
     key: 'executions',
     label: 'Total Executions',
-    subtitle: (d: DashboardData) => `Runs in selected period`,
+    subtitle: (_d: DashboardData) => `Runs in selected period`,
     value: (d: DashboardData) => d.totalExecutions,
     Icon: PlayCircleOutlineIcon,
     accent: '#3B82F6',

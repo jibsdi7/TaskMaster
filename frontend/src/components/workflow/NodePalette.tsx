@@ -1,4 +1,5 @@
 import { Box, Typography, TextField, Accordion, AccordionSummary, AccordionDetails, Chip, CircularProgress } from '@mui/material';
+import { authHeaders, BASE_URL } from '../../api/client';
 import { ExpandMore as ExpandMoreIcon, ViewModule as BlockIcon } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { STATIC_NODES, NodeTemplate } from './nodeTemplates';
@@ -27,9 +28,8 @@ const NodePalette = () => {
     const fetchBlocks = async () => {
       setBlocksLoading(true);
       try {
-        const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:8000/api/blocks', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        const res = await fetch(`${BASE_URL}/api/blocks`, {
+          headers: authHeaders(),
         });
         if (res.ok) setBlocks(await res.json());
       } catch {

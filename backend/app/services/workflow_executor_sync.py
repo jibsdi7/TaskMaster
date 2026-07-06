@@ -425,14 +425,13 @@ class WorkflowExecutorSync:
                 self._log("WARNING", f"Unknown node type: {node_type}", node_id,
                           node_type=node_type, node_label=node_label)
 
-            # Capture screenshot if enabled
-            if config.get("screenshot", False):
-                self._capture_screenshot(node_id, run_id)
+            screenshot_path = self._capture_screenshot(node_id, run_id)
 
             duration_ms = round((time.time() - node_start) * 1000)
             self._log("INFO", f"Node executed successfully: {node_label}", node_id,
                       node_type=node_type, node_label=node_label,
-                      duration_ms=duration_ms, node_status="passed")
+                      duration_ms=duration_ms, node_status="passed",
+                      screenshot_path=screenshot_path)
 
             return result
 
@@ -442,7 +441,8 @@ class WorkflowExecutorSync:
                       node_type=node_type, node_label=node_label,
                       duration_ms=duration_ms, node_status="failed")
             # Capture error screenshot
-            self._capture_screenshot(f"{node_id}_error", run_id)
+            error_screenshot_path = self._capture_screenshot(f"{node_id}_error", run_id)
+            self.logs[-1]["screenshot_path"] = error_screenshot_path
             raise
     
     def _execute_navigate(self, config: Dict[str, Any]) -> Any:
@@ -529,6 +529,24 @@ class WorkflowExecutorSync:
             locator = locator.nth(nth_index)
         return locator
     
+    @staticmethod
+    def _is_strict_mode_violation(error: Exception) -> bool:
+        """Return True when Playwright refuses because a selector matched >1 element."""
+        return "strict mode violation" in str(error)
+
+    def _resolve_strict_locator(self, locator, selector: str):
+        """
+        When a selector matches multiple elements, fall back to the first visible one.
+        Logs a warning so the user knows the selector is ambiguous.
+        """
+        self._log(
+            "WARNING",
+            f"Selector '{selector}' matched multiple elements (strict mode violation). "
+            "Using the first visible match. Consider making the selector more specific "
+            "in the workflow node config.",
+        )
+        return locator.first
+
     def _execute_click(self, config: Dict[str, Any]) -> Any:
         """Execute click with self-healing selector fallback."""
         selector = config.get("selector")
@@ -541,7 +559,14 @@ class WorkflowExecutorSync:
         healer = SelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
             locator, used_selector, recovery_log = healer.find(selector)
-            locator.click(timeout=timeout)
+            try:
+                locator.click(timeout=timeout)
+            except Exception as e:
+                if self._is_strict_mode_violation(e):
+                    locator = self._resolve_strict_locator(locator, used_selector)
+                    locator.click(timeout=timeout)
+                else:
+                    raise
             return {
                 "clicked": selector,
                 "used_selector": used_selector,
@@ -568,7 +593,14 @@ class WorkflowExecutorSync:
         healer = SelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
             locator, used_selector, recovery_log = healer.find(selector)
-            locator.click(timeout=timeout)
+            try:
+                locator.click(timeout=timeout)
+            except Exception as e:
+                if self._is_strict_mode_violation(e):
+                    locator = self._resolve_strict_locator(locator, used_selector)
+                    locator.click(timeout=timeout)
+                else:
+                    raise
             locator.press("Control+a")
             locator.fill(value)
             locator.press("Tab")
@@ -745,6 +777,7 @@ class WorkflowExecutorSync:
         except ImportError:
             pass
         return {"focused": None, "error": "pywin32 not available"}
+
     
     def _log(self, level: str, message: str, node_id: str = None, **kwargs):
         """Add log entry"""
