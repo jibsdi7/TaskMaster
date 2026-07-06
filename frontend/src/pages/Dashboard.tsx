@@ -264,12 +264,12 @@ const Dashboard = () => {
                   timestamp: r.started_at ?? r.completed_at ?? new Date().toISOString(),
                   detail:    `${r.workflow_name} — ${r.triggered_by === 'scheduler' ? 'SCHEDULED' : r.status.toUpperCase()}`,
                 })),
-                // Scheduled jobs created (distinct from executions — captures the schedule creation event)
+                // Scheduled jobs — use last_run_at when available, else created_at
                 ...(data?.recentScheduledJobs ?? []).map((j) => ({
                   type:      'Workflow Scheduled',
                   label:     'Workflow Scheduled',
-                  timestamp: j.created_at ?? new Date().toISOString(),
-                  detail:    `${j.name} → ${j.workflow_names} — ${j.schedule_type === 'cron' ? j.cron_expression : j.run_at ? new Date(j.run_at + 'Z').toLocaleString() : 'one-time'}`,
+                  timestamp: j.last_run_at ?? j.created_at ?? new Date().toISOString(),
+                  detail:    `${j.name} — ${j.workflow_names}`,
                 })),
                 // Workflows created
                 ...(data?.recentWorkflowsCreated ?? []).map((w) => ({
