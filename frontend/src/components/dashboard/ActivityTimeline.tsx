@@ -1,49 +1,65 @@
-// ActivityTimeline.tsx — recent activity feed
+// ActivityTimeline.tsx — activity feed grouped by status label
 import { Box, Card, CardContent, Typography } from '@mui/material';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import StopCircleIcon from '@mui/icons-material/StopCircle';
 import PlayCircleFilledIcon from '@mui/icons-material/PlayCircleFilled';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import EventIcon from '@mui/icons-material/Event';
+import ViewModuleIcon from '@mui/icons-material/ViewModule';
 
 interface Activity {
   type: string;
   label: string;
   timestamp: string;
-  detail?: string;
+  detail?: string; // format: "<workflow name> — <STATUS>"
+}
+
+// The 5 status groups to display, in a fixed display order
+const STATUS_GROUPS = [
+  'Workflow Executed',
+  'Workflow Created',
+  'Block Created',
+  'Workflow Scheduled',
+  'Execution Failed',
+] as const;
+
+type StatusGroup = typeof STATUS_GROUPS[number];
+
+interface GroupedActivity {
+  statusLabel: StatusGroup;
+  latestTimestamp: string;
+  latestWorkflowName: string; // workflow name from the most-recent entry in this group
+  count: number;
 }
 
 interface Props { activities: Activity[]; }
 
-const TYPE_CFG: Record<string, { color: string; Icon: any }> = {
-  'Workflow Created':     { color: '#5B7CF6', Icon: AddCircleIcon },
-  'Workflow Executed':    { color: '#48BB78', Icon: PlayCircleFilledIcon },
-  'Recording Started':    { color: '#F6AD55', Icon: FiberManualRecordIcon },
-  'Recording Completed':  { color: '#48BB78', Icon: StopCircleIcon },
-  'Block Created':        { color: '#7C5CF6', Icon: AddCircleIcon },
-  'Workflow Scheduled':   { color: '#3B82F6', Icon: EventIcon },
-  'Execution Failed':     { color: '#F56565', Icon: ErrorIcon },
-  'Execution Completed':  { color: '#48BB78', Icon: CheckCircleIcon },
+const GROUP_CFG: Record<StatusGroup, { color: string; Icon: any }> = {
+  'Workflow Executed':  { color: '#48BB78', Icon: PlayCircleFilledIcon },
+  'Workflow Created':   { color: '#5B7CF6', Icon: AddCircleIcon },
+  'Block Created':      { color: '#7C5CF6', Icon: ViewModuleIcon },
+  'Workflow Scheduled': { color: '#3B82F6', Icon: EventIcon },
+  'Execution Failed':   { color: '#F56565', Icon: ErrorIcon },
 };
 
-// Generate mock activities if none provided
-function mockActivities(): Activity[] {
-  const now = Date.now();
-  return [
-    { type: 'Execution Completed', label: 'Workflow Executed', timestamp: new Date(now - 120000).toISOString(), detail: 'Test14 — COMPLETED' },
-    { type: 'Workflow Created',    label: 'Workflow Created',  timestamp: new Date(now - 600000).toISOString(), detail: 'New workflow added' },
-    { type: 'Recording Completed', label: 'Recording Completed', timestamp: new Date(now - 1800000).toISOString(), detail: 'Session recorded' },
-    { type: 'Block Created',       label: 'Block Created',     timestamp: new Date(now - 3600000).toISOString(), detail: 'Login Block saved' },
-    { type: 'Workflow Scheduled',  label: 'Workflow Scheduled', timestamp: new Date(now - 7200000).toISOString(), detail: 'Scheduled daily' },
-    { type: 'Execution Failed',    label: 'Execution Failed',  timestamp: new Date(now - 14400000).toISOString(), detail: 'Selector not found' },
-  ];
-}
+// Map raw activity labels → one of the 5 canonical groups
+const LABEL_TO_GROUP: Record<string, StatusGroup> = {
+  'Execution Completed': 'Workflow Executed',
+  'Execution Running':   'Workflow Executed',
+  'Workflow Executed':   'Workflow Executed',
+  'Workflow Created':    'Workflow Created',
+  'Block Created':       'Block Created',
+  'Workflow Scheduled':  'Workflow Scheduled',
+  'Execution Failed':    'Execution Failed',
+};
 
-function fmtRelative(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
+function fmtRelative(iso: string): string {
+  if (!iso) return '—';
+  // Treat bare ISO strings (no Z / offset) as UTC to match backend storage
+  const normalised = /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
+  const diff = Date.now() - new Date(normalised).getTime();
+  if (!isFinite(diff) || diff < 0) return 'just now';
   const m = Math.floor(diff / 60000);
   if (m < 1) return 'just now';
   if (m < 60) return `${m}m ago`;
@@ -52,8 +68,40 @@ function fmtRelative(iso: string) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// Extract the workflow name from "WorkflowName — STATUS"
+function extractName(detail?: string): string {
+  if (!detail) return 'Unknown';
+  const idx = detail.lastIndexOf(' — ');
+  return idx !== -1 ? detail.slice(0, idx).trim() : detail.trim();
+}
+
+// Group activities by status label, always return all 5 groups (count 0 when no data)
+function groupByStatus(activities: Activity[]): GroupedActivity[] {
+  const map = new Map<StatusGroup, GroupedActivity>();
+
+  // Seed every group so all 5 always appear
+  for (const s of STATUS_GROUPS) {
+    map.set(s, { statusLabel: s, latestTimestamp: '', latestWorkflowName: '', count: 0 });
+  }
+
+  for (const a of activities) {
+    const group = LABEL_TO_GROUP[a.label];
+    if (!group) continue; // ignore unmapped labels
+    const wfName = extractName(a.detail);
+    const existing = map.get(group)!;
+    existing.count += 1;
+    if (!existing.latestTimestamp || new Date(a.timestamp) > new Date(existing.latestTimestamp)) {
+      existing.latestTimestamp = a.timestamp;
+      existing.latestWorkflowName = wfName;
+    }
+  }
+
+  // Return in fixed display order
+  return STATUS_GROUPS.map((s) => map.get(s)!);
+}
+
 export default function ActivityTimeline({ activities }: Props) {
-  const items = activities.length > 0 ? activities : mockActivities();
+  const grouped = groupByStatus(activities);
 
   return (
     <Card elevation={0} sx={{
@@ -71,25 +119,42 @@ export default function ActivityTimeline({ activities }: Props) {
         </Box>
 
         <Box sx={{ position: 'relative', pl: 2 }}>
-          {/* Vertical line */}
+          {/* Vertical connector line */}
           <Box sx={{ position: 'absolute', left: '7px', top: 0, bottom: 0, width: 1, backgroundColor: '#1e1e2e' }} />
 
-          {items.map((a, i) => {
-            const cfg = TYPE_CFG[a.type] ?? { color: '#666', Icon: EventIcon };
+          {grouped.map((g, i) => {
+            const cfg = GROUP_CFG[g.statusLabel];
             const Icon = cfg.Icon;
+            const isEmpty = g.count === 0;
             return (
-              <Box key={i} sx={{ display: 'flex', gap: 1.5, mb: i < items.length - 1 ? 2 : 0, position: 'relative' }}>
-                <Box sx={{ width: 16, height: 16, borderRadius: '50%', backgroundColor: `${cfg.color}20`, border: `1.5px solid ${cfg.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, zIndex: 1, mt: '1px' }}>
-                  <Icon sx={{ fontSize: 9, color: cfg.color }} />
+              <Box key={g.statusLabel} sx={{ display: 'flex', gap: 1.5, mb: i < grouped.length - 1 ? 2 : 0, position: 'relative' }}>
+                {/* Status icon dot — dimmed when no data */}
+                <Box sx={{ width: 16, height: 16, borderRadius: '50%', backgroundColor: isEmpty ? 'rgba(255,255,255,0.03)' : `${cfg.color}20`, border: `1.5px solid ${isEmpty ? '#333' : cfg.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, zIndex: 1, mt: '2px' }}>
+                  <Icon sx={{ fontSize: 9, color: isEmpty ? '#444' : cfg.color }} />
                 </Box>
+
                 <Box sx={{ flex: 1, minWidth: 0 }}>
+                  {/* Top line: status label + count badge + relative time */}
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <Typography variant="body2" sx={{ color: '#C0C0D0', fontSize: '0.8rem', fontWeight: 500 }}>{a.label}</Typography>
-                    <Typography variant="caption" sx={{ color: '#555', fontSize: '0.68rem', flexShrink: 0, ml: 1 }}>{fmtRelative(a.timestamp)}</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, overflow: 'hidden' }}>
+                      <Typography variant="body2" sx={{ color: isEmpty ? '#444' : cfg.color, fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {g.statusLabel}
+                      </Typography>
+                      {g.count > 1 && (
+                        <Typography variant="caption" sx={{ color: '#555', fontSize: '0.66rem', whiteSpace: 'nowrap' }}>
+                          ·{g.count}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Typography variant="caption" sx={{ color: '#555', fontSize: '0.68rem', flexShrink: 0, ml: 1 }}>
+                      {isEmpty ? '—' : fmtRelative(g.latestTimestamp)}
+                    </Typography>
                   </Box>
-                  {a.detail && (
-                    <Typography variant="caption" sx={{ color: '#666', fontSize: '0.72rem' }}>{a.detail}</Typography>
-                  )}
+
+                  {/* Bottom line: latest workflow/block name — truncated, or "No activity" */}
+                  <Typography variant="caption" sx={{ color: isEmpty ? '#333' : '#666', fontSize: '0.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', fontStyle: isEmpty ? 'italic' : 'normal' }}>
+                    {isEmpty ? 'No activity' : g.latestWorkflowName}
+                  </Typography>
                 </Box>
               </Box>
             );
