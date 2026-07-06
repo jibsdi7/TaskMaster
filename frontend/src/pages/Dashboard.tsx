@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, IconButton, Tooltip, MenuItem, Select,
-  FormControl, Divider, Tabs, Tab, Alert,
+  FormControl, Tabs, Tab, Alert,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DashboardIcon from '@mui/icons-material/Dashboard';
