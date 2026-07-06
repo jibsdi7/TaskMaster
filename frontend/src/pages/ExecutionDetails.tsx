@@ -290,10 +290,9 @@ const ExecutionDetails = () => {
 
     try {
       setDownloadingReport(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`http://localhost:8000/api/executions/${runId}/report`, {
+      const response = await axios.get(`${BASE_URL}/api/executions/${runId}/report`, {
         responseType: 'blob',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authHeaders(),
       });
 
       const url = window.URL.createObjectURL(new Blob([response.data]));

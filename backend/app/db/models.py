@@ -368,7 +368,10 @@ class ScheduledJob(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=False)
+    # Legacy single-workflow FK (kept for DB compat); use workflow_ids for multi-workflow
+    workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=True)
+    # Ordered list of workflow IDs to run sequentially e.g. [3, 1, 5]
+    workflow_ids = Column(JSON_TYPE, nullable=False, default=list)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     schedule_type = Column(SQLEnum(ScheduleType), nullable=False)
     # One-time: UTC datetime to fire at
@@ -377,13 +380,13 @@ class ScheduledJob(Base):
     cron_expression = Column(String, nullable=True)
     is_enabled = Column(Boolean, default=True)
     last_run_at = Column(DateTime, nullable=True)
-    last_run_status = Column(String, nullable=True)   # "success" | "failed"
+    last_run_status = Column(String, nullable=True)   # "success" | "failed" | "partial"
     run_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    workflow = relationship("Workflow")
+    workflow = relationship("Workflow", foreign_keys=[workflow_id])
     creator = relationship("User")
 
 

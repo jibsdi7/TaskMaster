@@ -16,6 +16,9 @@ flower>=2.0.1
 
 # Scheduler
 APScheduler>=3.10.0
+tzlocal>=5.2         # APScheduler runtime dep — local timezone resolution
+tzdata>=2024.1       # IANA timezone database (required by tzlocal on Windows)
+pytz>=2024.1         # UTC/named timezone objects used by APScheduler internals
 
 # Authentication
 python-jose[cryptography]>=3.3.0
@@ -32,11 +35,11 @@ httpx>=0.26.0
 aiohttp>=3.9.1
 
 # Utilities
-python-dotenv==1.0.0
-pillow==10.2.0
-pydantic-extra-types==2.4.1
-python-docx==1.1.2
-requests==2.34.0
+python-dotenv>=1.0.0
+pillow>=10.2.0
+pydantic-extra-types>=2.4.1
+python-docx>=1.1.2
+requests>=2.31.0
 
 # Testing
 pytest>=7.4.4

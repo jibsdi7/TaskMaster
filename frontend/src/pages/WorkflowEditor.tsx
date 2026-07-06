@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { authHeaders, BASE_URL } from '../api/client';
 import {
   Box,
@@ -26,7 +26,6 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
 import CheckIcon from '@mui/icons-material/Check';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useReactFlow } from 'reactflow';
 import WorkflowToolbar, { ReplaySpeed, SPEED_DELAY_MS } from '../components/workflow/WorkflowToolbar';
 import NodePalette from '../components/workflow/NodePalette';
 import WorkflowCanvas from '../components/workflow/WorkflowCanvas';
@@ -594,14 +593,13 @@ const WorkflowEditor = () => {
     }
     setSelBlockSaving(true);
     try {
-      const token = localStorage.getItem('token');
       const selectedNodes = nodes.filter((n) => selectedNodeIds.includes(n.id));
       const selectedEdges = edges.filter(
         (e) => selectedNodeIds.includes(e.source) && selectedNodeIds.includes(e.target)
       );
 
       const res = await axios.post(
-        'http://localhost:8000/api/blocks',
+        `${BASE_URL}/api/blocks`,
         {
           name: selBlockName.trim(),
           description: selBlockDescription.trim() || null,
@@ -629,7 +627,7 @@ const WorkflowEditor = () => {
           outputs: [],
           metadata: { created_from_selection: true },
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
 
       const created = res.data;
