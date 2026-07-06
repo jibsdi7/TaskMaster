@@ -44,7 +44,7 @@ const Login = () => {
     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', bgcolor: 'background.default' }}>
       <Card sx={{ width: 380, p: 2 }}>
         <CardContent>
-          <Typography variant="h5" fontWeight={700} mb={1}>TaskMaster</Typography>
+          <Typography variant="h5" fontWeight={700} mb={1}>FlowWeaver</Typography>
           <Typography variant="body2" color="text.secondary" mb={3}>Sign in to your account</Typography>
 
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

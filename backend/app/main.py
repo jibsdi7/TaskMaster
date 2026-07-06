@@ -1,5 +1,5 @@
 """
-TaskMaster - Main FastAPI Application
+FlowWeaver - Main FastAPI Application
 """
 import sys
 import os
@@ -86,7 +86,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TaskMaster API",
+    title="FlowWeaver API",
     description="Visual workflow automation platform",
     version="1.0.0",
     lifespan=lifespan

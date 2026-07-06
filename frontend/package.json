@@ -1,7 +1,7 @@
 {
   "name": "flow-weaver",
   "version": "1.0.0",
-  "description": "TaskMaster — Visual workflow automation platform",
+  "description": "FlowWeaver — Visual workflow automation platform",
   "type": "module",
   "scripts": {
     "dev": "vite",
