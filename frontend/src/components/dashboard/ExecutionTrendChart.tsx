@@ -4,12 +4,15 @@ import { Box, Card, CardContent, Typography, ToggleButton, ToggleButtonGroup } f
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import { DashboardData } from '../../pages/Dashboard';
 
-interface Props { data: DashboardData | null; loading: boolean; onPeriodChange: (d: number) => void; period: number; }
+interface Props { data: DashboardData | null; loading: boolean; onPeriodChange: (d: number) => void; period: number; subDay?: boolean; }
 
+// period > 0 = days; period < 0 = hours (−1 = 1 h, −24 = 24 h)
 const PERIODS = [
-  { label: '7D',  days: 7  },
-  { label: '30D', days: 30 },
-  { label: '90D', days: 90 },
+  { label: '1H',  period: -1  },
+  { label: '24H', period: -24 },
+  { label: '7D',  period: 7   },
+  { label: '30D', period: 30  },
+  { label: '90D', period: 90  },
 ];
 
 function buildPath(pts: { x: number; y: number }[]): string {
@@ -23,7 +26,7 @@ function buildPath(pts: { x: number; y: number }[]): string {
   return d;
 }
 
-export default function ExecutionTrendChart({ data, loading, onPeriodChange, period }: Props) {
+export default function ExecutionTrendChart({ data, loading, onPeriodChange, period, subDay }: Props) {
   // Dynamic width — measure the container so axes truly fill the card
   const containerRef = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(600);
@@ -45,6 +48,8 @@ export default function ExecutionTrendChart({ data, loading, onPeriodChange, per
 
   const [hovered, setHovered] = useState<number | null>(null);
 
+  // When in sub-day mode the date strings are "HH:MM" — use them as-is for labels
+  const isSubDay = (subDay === true) || (period < 0);
   const trend = data?.executionTrend ?? [];
 
   const { points, maxCount, yTicks } = useMemo(() => {
@@ -106,7 +111,7 @@ export default function ExecutionTrendChart({ data, loading, onPeriodChange, per
           </Box>
           <ToggleButtonGroup value={period} exclusive onChange={(_, v) => v && onPeriodChange(v)} size="small">
             {PERIODS.map((p) => (
-              <ToggleButton key={p.days} value={p.days} sx={{
+              <ToggleButton key={p.period} value={p.period} sx={{
                 color: '#555', borderColor: '#252535', fontSize: '0.72rem', py: 0.3, px: 1.5, fontWeight: 600,
                 '&.Mui-selected': { color: '#7B96F9', backgroundColor: 'rgba(91,124,246,0.15)', borderColor: 'rgba(91,124,246,0.4)' },
                 '&:hover': { color: '#B0B8FF', backgroundColor: 'rgba(91,124,246,0.08)' },
@@ -236,7 +241,7 @@ export default function ExecutionTrendChart({ data, loading, onPeriodChange, per
                   fontSize={Math.max(8, Math.min(10, W / 65))}
                   fontWeight={500}
                 >
-                  {points[i].date.slice(5)}
+                  {isSubDay ? points[i].date : points[i].date.slice(5)}
                 </text>
               ))}
 
@@ -250,7 +255,7 @@ export default function ExecutionTrendChart({ data, loading, onPeriodChange, per
                     <rect x={tipX} y={tipY} width={tipW} height={tipH} rx={7}
                       fill="#12121e" stroke="rgba(91,124,246,0.55)" strokeWidth={1} />
                     <text x={tipX + 8} y={tipY + 13} fill="#7B96F9" fontSize={9} fontWeight={700}>
-                      {hovPt.date.slice(5)}
+                      {isSubDay ? hovPt.date : hovPt.date.slice(5)}
                     </text>
                     <text x={tipX + 8} y={tipY + 28} fill="#FFFFFF" fontSize={12} fontWeight={700}>
                       {hovPt.count} run{hovPt.count !== 1 ? 's' : ''}

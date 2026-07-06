@@ -25,7 +25,8 @@ export interface DashboardData {
   failedRuns: number;
   successRate: number;
   reusableBlocks: number;
-  periodDays: number;
+  periodDays:  number;
+  periodHours: number;
   executionTrend: { date: string; count: number }[];
   statusBreakdown: Record<string, number>;
   workflowDistribution: { name: string; runs: number }[];
@@ -42,17 +43,20 @@ export interface DashboardData {
   recentBlocksCreated:    { name: string; created_at: string | null }[];
 }
 
+// period values: positive = days, negative = hours (−1 = last 1 h, −24 = last 24 h)
 const DATE_RANGES = [
-  { label: 'Last 7 Days',  days: 7 },
-  { label: 'Last 30 Days', days: 30 },
-  { label: 'Last 90 Days', days: 90 },
+  { label: 'Last 1 Hour',  period: -1  },
+  { label: 'Last 24 Hours', period: -24 },
+  { label: 'Last 7 Days',  period: 7   },
+  { label: 'Last 30 Days', period: 30  },
+  { label: 'Last 90 Days', period: 90  },
 ];
 
 const Dashboard = () => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [period, setPeriod] = useState(7);
+  const [period, setPeriod] = useState(7);   // matches DATE_RANGES[2] default
   const [tab, setTab] = useState(0);
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [blocks, setBlocks] = useState<any[]>([]);
@@ -60,11 +64,13 @@ const Dashboard = () => {
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...authHeaders() };
 
-  const fetchDashboard = useCallback(async (days: number) => {
+  // period > 0 → days query param; period < 0 → hours query param (absolute value)
+  const fetchDashboard = useCallback(async (p: number) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${API}/dashboard?days=${days}`, { headers });
+      const query = p < 0 ? `hours=${Math.abs(p)}` : `days=${p}`;
+      const res = await fetch(`${API}/dashboard?${query}`, { headers });
       if (!res.ok) throw new Error(`Dashboard API: ${res.statusText}`);
       setData(await res.json());
     } catch (err) {
@@ -95,9 +101,9 @@ const Dashboard = () => {
     fetchBlocks();
   }, []);
 
-  const handlePeriodChange = (days: number) => {
-    setPeriod(days);
-    fetchDashboard(days);
+  const handlePeriodChange = (p: number) => {
+    setPeriod(p);
+    fetchDashboard(p);
   };
 
   const handleRefresh = () => {
@@ -161,7 +167,7 @@ const Dashboard = () => {
               value={period}
               onChange={(e) => handlePeriodChange(Number(e.target.value))}
               sx={{
-                color: '#C0C0D0', fontSize: '0.8rem', minWidth: 130,
+                color: '#C0C0D0', fontSize: '0.8rem', minWidth: 140,
                 '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
                 '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
                 '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#5B7CF6' },
@@ -169,7 +175,7 @@ const Dashboard = () => {
               }}
             >
               {DATE_RANGES.map((r) => (
-                <MenuItem key={r.days} value={r.days}>{r.label}</MenuItem>
+                <MenuItem key={r.period} value={r.period}>{r.label}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -200,7 +206,7 @@ const Dashboard = () => {
 
             {/* Row 2 — Charts row */}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 240px 1fr' }, gap: 2 }}>
-              <ExecutionTrendChart data={data} loading={loading} onPeriodChange={handlePeriodChange} period={period} />
+              <ExecutionTrendChart data={data} loading={loading} onPeriodChange={handlePeriodChange} period={period} subDay={period < 0} />
               <ExecutionStatusDonut data={data} loading={loading} />
               <WorkflowDistributionBar data={data} loading={loading} />
             </Box>

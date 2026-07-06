@@ -1,7 +1,6 @@
 // ActivityTimeline.tsx — activity feed grouped by status label
 import { Box, Card, CardContent, Typography } from '@mui/material';
 import TimelineIcon from '@mui/icons-material/Timeline';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import PlayCircleFilledIcon from '@mui/icons-material/PlayCircleFilled';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
