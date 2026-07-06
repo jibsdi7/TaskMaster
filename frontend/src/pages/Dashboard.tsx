@@ -40,6 +40,19 @@ export interface DashboardData {
   }[];
   recentWorkflowsCreated: { name: string; created_at: string | null }[];
   recentBlocksCreated:    { name: string; created_at: string | null }[];
+  recentScheduledJobs: {
+    id: number;
+    name: string;
+    workflow_names: string;
+    schedule_type: string;
+    run_at: string | null;
+    cron_expression: string | null;
+    is_enabled: boolean;
+    last_run_at: string | null;
+    last_run_status: string | null;
+    run_count: number;
+    created_at: string | null;
+  }[];
 }
 
 const DATE_RANGES = [
@@ -239,32 +252,40 @@ const Dashboard = () => {
           {/* Right panel — 260px fixed */}
           <Box sx={{ width: 260, flexShrink: 0, display: { xs: 'none', lg: 'block' } }}>
             <RightPanel activities={[
-              // Execution runs → Workflow Executed / Execution Failed
-              ...(data?.recentExecutions ?? []).map((r) => ({
-                type:      r.status === 'completed' ? 'Execution Completed'
-                         : r.status === 'failed'    ? 'Execution Failed'
-                         : 'Workflow Executed',
-                label:     r.status === 'completed' ? 'Execution Completed'
-                         : r.status === 'failed'    ? 'Execution Failed'
-                         : 'Execution Running',
-                timestamp: r.started_at ?? r.completed_at ?? new Date().toISOString(),
-                detail:    `${r.workflow_name} — ${r.status.toUpperCase()}`,
-              })),
-              // Workflows created
-              ...(data?.recentWorkflowsCreated ?? []).map((w) => ({
-                type:      'Workflow Created',
-                label:     'Workflow Created',
-                timestamp: w.created_at ?? new Date().toISOString(),
-                detail:    `${w.name} — CREATED`,
-              })),
-              // Blocks created
-              ...(data?.recentBlocksCreated ?? []).map((b) => ({
-                type:      'Block Created',
-                label:     'Block Created',
-                timestamp: b.created_at ?? new Date().toISOString(),
-                detail:    `${b.name} — CREATED`,
-              })),
-            ]} />
+                // Execution runs → Workflow Executed / Execution Failed / Workflow Scheduled (if triggered by scheduler)
+                ...(data?.recentExecutions ?? []).map((r) => ({
+                  type:      r.status === 'completed' ? 'Execution Completed'
+                           : r.status === 'failed'    ? 'Execution Failed'
+                           : 'Workflow Executed',
+                  label:     r.status === 'failed'              ? 'Execution Failed'
+                           : r.triggered_by === 'scheduler'     ? 'Workflow Scheduled'
+                           : r.status === 'completed'           ? 'Execution Completed'
+                           : 'Execution Running',
+                  timestamp: r.started_at ?? r.completed_at ?? new Date().toISOString(),
+                  detail:    `${r.workflow_name} — ${r.triggered_by === 'scheduler' ? 'SCHEDULED' : r.status.toUpperCase()}`,
+                })),
+                // Scheduled jobs created (distinct from executions — captures the schedule creation event)
+                ...(data?.recentScheduledJobs ?? []).map((j) => ({
+                  type:      'Workflow Scheduled',
+                  label:     'Workflow Scheduled',
+                  timestamp: j.created_at ?? new Date().toISOString(),
+                  detail:    `${j.name} → ${j.workflow_names} — ${j.schedule_type === 'cron' ? j.cron_expression : j.run_at ? new Date(j.run_at + 'Z').toLocaleString() : 'one-time'}`,
+                })),
+                // Workflows created
+                ...(data?.recentWorkflowsCreated ?? []).map((w) => ({
+                  type:      'Workflow Created',
+                  label:     'Workflow Created',
+                  timestamp: w.created_at ?? new Date().toISOString(),
+                  detail:    `${w.name} — CREATED`,
+                })),
+                // Blocks created
+                ...(data?.recentBlocksCreated ?? []).map((b) => ({
+                  type:      'Block Created',
+                  label:     'Block Created',
+                  timestamp: b.created_at ?? new Date().toISOString(),
+                  detail:    `${b.name} — CREATED`,
+                })),
+              ]} />
           </Box>
         </Box>
       </Box>

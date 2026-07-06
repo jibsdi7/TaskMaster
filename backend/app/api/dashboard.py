@@ -23,27 +23,25 @@ async def get_dashboard(
 ):
     """Return aggregated dashboard statistics for the current user."""
 
+    # ── Dev-mode: bypass creator_id filters ───────────────────────────
+    from app.core.config import settings
+    dev_mode = settings.DEV_AUTH_BYPASS
+
     # ── User-scoped workflow IDs ──────────────────────────────────────
-    wf_ids_q = db.query(models.Workflow.id).filter(
-        models.Workflow.creator_id == current_user.id
-    ).all()
-    wf_ids = [r[0] for r in wf_ids_q]
+    wf_ids_q = db.query(models.Workflow.id)
+    if not dev_mode:
+        wf_ids_q = wf_ids_q.filter(models.Workflow.creator_id == current_user.id)
+    wf_ids = [r[0] for r in wf_ids_q.all()]
 
     since = datetime.utcnow() - timedelta(days=days)
 
     # ── Summary counts ────────────────────────────────────────────────
-    total_workflows = db.query(models.Workflow).filter(
-        models.Workflow.creator_id == current_user.id
-    ).count()
+    wf_q = db.query(models.Workflow) if dev_mode else db.query(models.Workflow).filter(models.Workflow.creator_id == current_user.id)
+    total_workflows  = wf_q.count()
+    active_workflows = (wf_q if dev_mode else db.query(models.Workflow).filter(models.Workflow.creator_id == current_user.id)).filter(models.Workflow.is_active == True).count()
 
-    active_workflows = db.query(models.Workflow).filter(
-        models.Workflow.creator_id == current_user.id,
-        models.Workflow.is_active == True,
-    ).count()
-
-    reusable_blocks = db.query(models.Block).filter(
-        models.Block.creator_id == current_user.id
-    ).count()
+    blk_q = db.query(models.Block) if dev_mode else db.query(models.Block).filter(models.Block.creator_id == current_user.id)
+    reusable_blocks = blk_q.count()
 
     # All-time run totals
     total_executions = db.query(models.WorkflowRun).filter(
@@ -153,19 +151,17 @@ async def get_dashboard(
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,
             "duration_seconds": run.duration_seconds,
-            "triggered_by": "manual",
+            # Read actual trigger source from meta_data — default "manual"
+            "triggered_by": (run.meta_data or {}).get("triggered_by", "manual"),
         }
         for run, wf_name in recent_runs
     ]
 
     # ── Recent workflows created (last 10) ────────────────────────────
-    recent_wf_rows = (
-        db.query(models.Workflow)
-        .filter(models.Workflow.creator_id == current_user.id)
-        .order_by(models.Workflow.created_at.desc())
-        .limit(10)
-        .all()
-    )
+    recent_wf_q = db.query(models.Workflow)
+    if not dev_mode:
+        recent_wf_q = recent_wf_q.filter(models.Workflow.creator_id == current_user.id)
+    recent_wf_rows = recent_wf_q.order_by(models.Workflow.created_at.desc()).limit(10).all()
     recent_workflows_created = [
         {
             "name": wf.name,
@@ -175,13 +171,10 @@ async def get_dashboard(
     ]
 
     # ── Recent blocks created (last 10) ──────────────────────────────
-    recent_block_rows = (
-        db.query(models.Block)
-        .filter(models.Block.creator_id == current_user.id)
-        .order_by(models.Block.created_at.desc())
-        .limit(10)
-        .all()
-    )
+    recent_blk_q = db.query(models.Block)
+    if not dev_mode:
+        recent_blk_q = recent_blk_q.filter(models.Block.creator_id == current_user.id)
+    recent_block_rows = recent_blk_q.order_by(models.Block.created_at.desc()).limit(10).all()
     recent_blocks_created = [
         {
             "name": block.name,
@@ -189,6 +182,33 @@ async def get_dashboard(
         }
         for block in recent_block_rows
     ]
+
+    # ── Recent scheduled jobs (last 10) ──────────────────────────────
+    sched_q = db.query(models.ScheduledJob)
+    if not dev_mode:
+        sched_q = sched_q.filter(models.ScheduledJob.creator_id == current_user.id)
+    recent_sched_rows = sched_q.order_by(models.ScheduledJob.created_at.desc()).limit(10).all()
+
+    # Resolve workflow names for scheduled jobs
+    recent_scheduled_jobs = []
+    for job in recent_sched_rows:
+        # Collect all workflow names this job covers
+        ids = job.workflow_ids or ([job.workflow_id] if job.workflow_id else [])
+        wfs = db.query(models.Workflow.name).filter(models.Workflow.id.in_(ids)).all()
+        wf_names = ", ".join(w.name for w in wfs) if wfs else f"#{ids[0]}" if ids else "Unknown"
+        recent_scheduled_jobs.append({
+            "id": job.id,
+            "name": job.name,
+            "workflow_names": wf_names,
+            "schedule_type": job.schedule_type.value,
+            "run_at": job.run_at.isoformat() if job.run_at else None,
+            "cron_expression": job.cron_expression,
+            "is_enabled": job.is_enabled,
+            "last_run_at": job.last_run_at.isoformat() if job.last_run_at else None,
+            "last_run_status": job.last_run_status,
+            "run_count": job.run_count or 0,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+        })
 
     return {
         "totalWorkflows": total_workflows,
@@ -205,6 +225,7 @@ async def get_dashboard(
         "recentExecutions": recent_executions,
         "recentWorkflowsCreated": recent_workflows_created,
         "recentBlocksCreated": recent_blocks_created,
+        "recentScheduledJobs": recent_scheduled_jobs,
     }
 
 # Made with Bob

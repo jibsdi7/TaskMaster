@@ -61,7 +61,7 @@ class SchedulerService:
             id=str(job_id),
             args=[job_id],
             replace_existing=True,
-            misfire_grace_time=300,  # allow 5-min late fire
+            misfire_grace_time=None,  # fire immediately regardless of how late
         )
         logger.info("[Scheduler] Job %d registered (%s)", job_id, schedule_type)
 
@@ -90,12 +90,17 @@ class SchedulerService:
     def _load_jobs_from_db(self) -> None:
         """Read all enabled ScheduledJobs from SQLite and register them."""
         from app.db.database import SessionLocal
-        from app.db.models import ScheduledJob
+        from app.db.models import ScheduledJob, ScheduleType
 
         db = SessionLocal()
         try:
             jobs = db.query(ScheduledJob).filter(ScheduledJob.is_enabled == True).all()
             for job in jobs:
+                # Skip one-time jobs that already ran — they just haven't been
+                # marked disabled yet (e.g. server was restarted mid-flight).
+                if job.schedule_type == ScheduleType.ONE_TIME and job.last_run_at is not None:
+                    logger.info("[Scheduler] Skipping already-run one-time job %d", job.id)
+                    continue
                 trigger = self._make_trigger(
                     job.schedule_type.value,
                     job.run_at,
@@ -109,7 +114,7 @@ class SchedulerService:
                     id=str(job.id),
                     args=[job.id],
                     replace_existing=True,
-                    misfire_grace_time=300,
+                    misfire_grace_time=None,  # fire immediately regardless of how late
                 )
         finally:
             db.close()
@@ -141,6 +146,11 @@ class SchedulerService:
         try:
             job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
             if not job or not job.is_enabled:
+                return
+            # Guard against double-fire (e.g. server restart re-loaded a job
+            # that already ran but wasn't yet marked disabled).
+            if job.schedule_type == ScheduleType.ONE_TIME and job.last_run_at is not None:
+                logger.info("[Scheduler] Job %d already ran — skipping duplicate fire", job_id)
                 return
 
             # Determine ordered list of workflow IDs to run
@@ -244,15 +254,39 @@ class SchedulerService:
                 finally:
                     loop.close()
 
-            workflow_run.status = models.WorkflowStatus.COMPLETED
+            # Determine final status from executor result (it can return FAILED even without raise)
+            exec_status = result.get("status", models.WorkflowStatus.COMPLETED.value)
+            workflow_run.status = (
+                models.WorkflowStatus.FAILED
+                if exec_status == models.WorkflowStatus.FAILED.value
+                else models.WorkflowStatus.COMPLETED
+            )
             started_at = result.get("started_at")
             completed_at = result.get("completed_at")
             workflow_run.started_at = started_at if isinstance(started_at, datetime) else (datetime.fromisoformat(started_at) if started_at else None)
             workflow_run.completed_at = completed_at if isinstance(completed_at, datetime) else (datetime.fromisoformat(completed_at) if completed_at else None)
             workflow_run.duration_seconds = result.get("duration_seconds")
             workflow_run.result = result.get("result", {})
+            if result.get("error_message"):
+                workflow_run.error_message = result.get("error_message")
+
+            # ── Persist per-node logs so ExecutionDetails shows timing/status ──
+            # Mirror the exact same logic as the manual /execute endpoint.
+            CORE_LOG_KEYS = {"level", "message", "node_id", "timestamp", "screenshot_path", "metadata"}
+            for log_data in result.get("logs", []):
+                extra = {k: v for k, v in log_data.items() if k not in CORE_LOG_KEYS}
+                meta = {**log_data.get("metadata", {}), **extra}
+                db.add(models.WorkflowLog(
+                    run_id=workflow_run.id,
+                    node_id=log_data.get("node_id"),
+                    level=log_data.get("level", "INFO"),
+                    message=log_data.get("message", ""),
+                    screenshot_path=log_data.get("screenshot_path"),
+                    meta_data=meta,
+                ))
+
             db.commit()
-            return "success"
+            return "failed" if workflow_run.status == models.WorkflowStatus.FAILED else "success"
 
         except Exception as exc:
             logger.exception("[Scheduler] Workflow %d execution error: %s", workflow_id, exc)

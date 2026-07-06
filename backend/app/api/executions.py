@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
+from app.core.config import settings
 from app.db.database import get_db
 from app.db import models
 from app.schemas.workflow import WorkflowRunResponse, WorkflowLogResponse
@@ -25,15 +26,16 @@ async def list_executions(
     current_user: models.User = Depends(get_current_user)
 ):
     """List workflow executions"""
-    # Get workflows owned by user
-    user_workflow_ids = db.query(models.Workflow.id).filter(
-        models.Workflow.creator_id == current_user.id
-    ).all()
-    user_workflow_ids = [wf[0] for wf in user_workflow_ids]
-    
-    query = db.query(models.WorkflowRun).filter(
-        models.WorkflowRun.workflow_id.in_(user_workflow_ids)
-    )
+    query = db.query(models.WorkflowRun)
+    if not settings.DEV_AUTH_BYPASS:
+        # Restrict to workflows owned by this user
+        user_workflow_ids = [
+            wf[0] for wf in
+            db.query(models.Workflow.id)
+              .filter(models.Workflow.creator_id == current_user.id)
+              .all()
+        ]
+        query = query.filter(models.WorkflowRun.workflow_id.in_(user_workflow_ids))
     
     if workflow_id:
         query = query.filter(models.WorkflowRun.workflow_id == workflow_id)
@@ -62,17 +64,21 @@ async def get_execution(
             detail="Execution not found"
         )
     
-    # Check if user owns the workflow
-    workflow = db.query(models.Workflow).filter(
-        models.Workflow.id == run.workflow_id,
-        models.Workflow.creator_id == current_user.id
-    ).first()
-    
-    if not workflow:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
+    # Check if user owns the workflow (skip in dev mode)
+    if not settings.DEV_AUTH_BYPASS:
+        workflow = db.query(models.Workflow).filter(
+            models.Workflow.id == run.workflow_id,
+            models.Workflow.creator_id == current_user.id
+        ).first()
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+    else:
+        workflow = db.query(models.Workflow).filter(
+            models.Workflow.id == run.workflow_id
+        ).first()
 
     # Load logs from the WorkflowLog relationship (not the empty `logs` JSON column)
     wf_logs = db.query(models.WorkflowLog).filter(
@@ -82,12 +88,14 @@ async def get_execution(
     return {
         "id": run.id,
         "workflow_id": run.workflow_id,
+        "workflow_name": workflow.name if workflow else None,
         "run_id": run.run_id,
         "status": run.status,
         "started_at": run.started_at,
         "completed_at": run.completed_at,
         "duration_seconds": run.duration_seconds,
         "error_message": run.error_message,
+        "triggered_by": (run.meta_data or {}).get("triggered_by", "manual"),
         "result": run.result or {},
         "logs": [
             {
@@ -123,17 +131,14 @@ async def get_execution_logs(
             detail="Execution not found"
         )
     
-    # Check if user owns the workflow
-    workflow = db.query(models.Workflow).filter(
-        models.Workflow.id == run.workflow_id,
-        models.Workflow.creator_id == current_user.id
-    ).first()
-    
-    if not workflow:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
+    # Check if user owns the workflow (skip in dev mode)
+    if not settings.DEV_AUTH_BYPASS:
+        _wf = db.query(models.Workflow).filter(
+            models.Workflow.id == run.workflow_id,
+            models.Workflow.creator_id == current_user.id
+        ).first()
+        if not _wf:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     
     logs = db.query(models.WorkflowLog).filter(
         models.WorkflowLog.run_id == run.id
@@ -159,10 +164,10 @@ async def download_execution_report(
             detail="Execution not found"
         )
 
-    workflow = db.query(models.Workflow).filter(
-        models.Workflow.id == run.workflow_id,
-        models.Workflow.creator_id == current_user.id
-    ).first()
+    wf_q = db.query(models.Workflow).filter(models.Workflow.id == run.workflow_id)
+    if not settings.DEV_AUTH_BYPASS:
+        wf_q = wf_q.filter(models.Workflow.creator_id == current_user.id)
+    workflow = wf_q.first()
 
     if not workflow:
         raise HTTPException(
@@ -201,18 +206,15 @@ async def get_execution_screenshots(
             detail="Execution not found"
         )
     
-    # Check if user owns the workflow
-    workflow = db.query(models.Workflow).filter(
-        models.Workflow.id == run.workflow_id,
-        models.Workflow.creator_id == current_user.id
-    ).first()
-    
-    if not workflow:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
+    # Check if user owns the workflow (skip in dev mode)
+    if not settings.DEV_AUTH_BYPASS:
+        _wf = db.query(models.Workflow).filter(
+            models.Workflow.id == run.workflow_id,
+            models.Workflow.creator_id == current_user.id
+        ).first()
+        if not _wf:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     logs_with_screenshots = db.query(models.WorkflowLog).filter(
         models.WorkflowLog.run_id == run.id,
         models.WorkflowLog.screenshot_path.isnot(None)
@@ -251,18 +253,15 @@ async def delete_execution(
             detail="Execution not found"
         )
     
-    # Check if user owns the workflow
-    workflow = db.query(models.Workflow).filter(
-        models.Workflow.id == run.workflow_id,
-        models.Workflow.creator_id == current_user.id
-    ).first()
-    
-    if not workflow:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
+    # Check if user owns the workflow (skip in dev mode)
+    if not settings.DEV_AUTH_BYPASS:
+        _wf = db.query(models.Workflow).filter(
+            models.Workflow.id == run.workflow_id,
+            models.Workflow.creator_id == current_user.id
+        ).first()
+        if not _wf:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     db.delete(run)
     db.commit()
     
