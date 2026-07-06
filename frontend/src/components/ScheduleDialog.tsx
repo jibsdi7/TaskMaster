@@ -3,7 +3,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, MenuItem, Box, Typography, Alert,
   ToggleButtonGroup, ToggleButton, CircularProgress, Popover, IconButton,
-  Checkbox, Chip,
+  Checkbox,
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';

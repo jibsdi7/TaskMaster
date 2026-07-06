@@ -129,7 +129,7 @@ const SchedulerList = () => {
         </Box>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <Tooltip title="Refresh">
-            <IconButton onClick={fetchJobs} size="small" sx={{ color: '#666', '&:hover': { color: '#E0E0F0' } }}>
+            <IconButton onClick={() => fetchJobs()} size="small" sx={{ color: '#666', '&:hover': { color: '#E0E0F0' } }}>
               <RefreshIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </Tooltip>

@@ -47,8 +47,8 @@ interface WorkflowToolbarProps {
   onRun: () => void;
   onUndo: () => void;
   onRedo: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
   onFitView: () => void;
   onAutoLayout: () => void;
   onSaveAsBlock: () => void;
@@ -103,7 +103,7 @@ const WorkflowToolbar = ({
   workflowName, onRenameWorkflow, status, isRecording, canUndo, canRedo,
   onNew, onSave, onDelete, onImport, onExport,
   onRecord, onStopRecording, onRun, onUndo, onRedo,
-  onZoomIn, onZoomOut, onFitView, onAutoLayout, onSaveAsBlock, onSaveSelectionAsBlock,
+  onFitView, onAutoLayout, onSaveAsBlock, onSaveSelectionAsBlock,
   selectedNodeCount, onImportBlock, onViewCode, onImportScript,
   replaySpeed, onReplaySpeedChange,
 }: WorkflowToolbarProps) => {
