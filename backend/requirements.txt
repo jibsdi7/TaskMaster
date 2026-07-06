@@ -32,6 +32,7 @@ aiohttp==3.9.1
 python-dotenv==1.0.0
 pillow==10.2.0
 pydantic-extra-types==2.4.1
+python-docx==1.1.2
 requests==2.34.0
 
 # Testing

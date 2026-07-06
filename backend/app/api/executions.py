@@ -2,6 +2,7 @@
 Execution API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -9,6 +10,7 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas.workflow import WorkflowRunResponse, WorkflowLogResponse
 from app.core.security import get_current_user
+from app.services.report_generator import ReportGenerator
 
 router = APIRouter()
 
@@ -138,6 +140,48 @@ async def get_execution_logs(
     ).order_by(models.WorkflowLog.created_at.asc()).all()
     
     return logs
+
+
+@router.get("/{run_id}/report")
+async def download_execution_report(
+    run_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Download a DOCX report for a specific execution"""
+    run = db.query(models.WorkflowRun).filter(
+        models.WorkflowRun.run_id == run_id
+    ).first()
+
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Execution not found"
+        )
+
+    workflow = db.query(models.Workflow).filter(
+        models.Workflow.id == run.workflow_id,
+        models.Workflow.creator_id == current_user.id
+    ).first()
+
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+
+    logs = db.query(models.WorkflowLog).filter(
+        models.WorkflowLog.run_id == run.id
+    ).order_by(models.WorkflowLog.created_at.asc()).all()
+
+    report = ReportGenerator().generate_execution_report(workflow, run, logs)
+    filename = f"execution_report_{run.run_id}.docx"
+
+    return StreamingResponse(
+        report,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.get("/{run_id}/screenshots")

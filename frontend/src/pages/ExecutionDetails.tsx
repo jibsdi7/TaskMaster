@@ -11,6 +11,7 @@ import {
   ListItem,
   ListItemText,
   Divider,
+  Button,
 } from '@mui/material';
 import axios from 'axios';
 
@@ -265,6 +266,7 @@ const ExecutionDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(true);
+  const [downloadingReport, setDownloadingReport] = useState(false);
 
   const fetchExecution = async () => {
     try {
@@ -280,6 +282,32 @@ const ExecutionDetails = () => {
       setPolling(false);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    if (!runId) return;
+
+    try {
+      setDownloadingReport(true);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`http://localhost:8000/api/executions/${runId}/report`, {
+        responseType: 'blob',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `execution_report_${runId}.docx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to download report');
+    } finally {
+      setDownloadingReport(false);
     }
   };
 
@@ -330,11 +358,20 @@ const ExecutionDetails = () => {
         <Typography variant="h5" sx={{ color: '#e0e0f0', fontWeight: 700 }}>
           Execution Details
         </Typography>
-        <Chip
-          label={execution.status}
-          color={getStatusColor(execution.status)}
-          sx={{ fontWeight: 700, fontSize: '0.82rem' }}
-        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Button
+            variant="outlined"
+            onClick={handleDownloadReport}
+            disabled={downloadingReport}
+          >
+            {downloadingReport ? 'Downloading...' : 'Download Report'}
+          </Button>
+          <Chip
+            label={execution.status}
+            color={getStatusColor(execution.status)}
+            sx={{ fontWeight: 700, fontSize: '0.82rem' }}
+          />
+        </Box>
       </Box>
 
       {polling && (

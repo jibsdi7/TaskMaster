@@ -523,14 +523,13 @@ class WorkflowExecutor:
                 self._log("WARNING", f"Unknown node type: {node_type}", node_id,
                           node_type=node_type, node_label=node_label)
 
-            # Capture screenshot if enabled
-            if config.get("screenshot", False):
-                await self._capture_screenshot(node_id, run_id)
+            screenshot_path = await self._capture_screenshot(node_id, run_id)
 
             duration_ms = round((_time.time() - node_start) * 1000)
             self._log("INFO", f"Node executed successfully: {node_label}", node_id,
                       node_type=node_type, node_label=node_label,
-                      duration_ms=duration_ms, node_status="passed")
+                      duration_ms=duration_ms, node_status="passed",
+                      screenshot_path=screenshot_path)
 
             return result
 
@@ -540,7 +539,8 @@ class WorkflowExecutor:
                       node_type=node_type, node_label=node_label,
                       duration_ms=duration_ms, node_status="failed")
             # Capture error screenshot
-            await self._capture_screenshot(f"{node_id}_error", run_id)
+            error_screenshot_path = await self._capture_screenshot(f"{node_id}_error", run_id)
+            self.logs[-1]["screenshot_path"] = error_screenshot_path
             raise
     
     async def _execute_navigate(self, config: Dict[str, Any]) -> Any:
@@ -682,10 +682,10 @@ class WorkflowExecutor:
                 
                 return {"status": response.status, "data": data}
     
-    async def _capture_screenshot(self, node_id: str, run_id: str):
+    async def _capture_screenshot(self, node_id: str, run_id: str) -> Optional[str]:
         """Capture screenshot"""
         if not self.page:
-            return
+            return None
         
         # Create screenshots directory
         screenshot_dir = os.path.join(settings.SCREENSHOT_DIR, run_id)
@@ -703,6 +703,7 @@ class WorkflowExecutor:
             "path": screenshot_path,
             "timestamp": datetime.utcnow().isoformat()
         })
+        return screenshot_path.replace("\\", "/")
     
     def _log(self, level: str, message: str, node_id: str = None, **kwargs):
         """Add log entry"""
