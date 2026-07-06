@@ -594,14 +594,13 @@ const WorkflowEditor = () => {
     }
     setSelBlockSaving(true);
     try {
-      const token = localStorage.getItem('token');
       const selectedNodes = nodes.filter((n) => selectedNodeIds.includes(n.id));
       const selectedEdges = edges.filter(
         (e) => selectedNodeIds.includes(e.source) && selectedNodeIds.includes(e.target)
       );
 
       const res = await axios.post(
-        'http://localhost:8000/api/blocks',
+        `${BASE_URL}/api/blocks`,
         {
           name: selBlockName.trim(),
           description: selBlockDescription.trim() || null,
@@ -629,7 +628,7 @@ const WorkflowEditor = () => {
           outputs: [],
           metadata: { created_from_selection: true },
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
 
       const created = res.data;

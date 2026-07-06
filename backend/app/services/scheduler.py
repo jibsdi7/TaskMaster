@@ -131,7 +131,9 @@ class SchedulerService:
 
     @staticmethod
     def _fire_job(job_id: int) -> None:
-        """Executed by APScheduler in a background thread."""
+        """Executed by APScheduler in a background thread.
+        Runs all workflows in job.workflow_ids sequentially, in order.
+        """
         from app.db.database import SessionLocal
         from app.db.models import ScheduledJob, ScheduleType
 
@@ -141,16 +143,41 @@ class SchedulerService:
             if not job or not job.is_enabled:
                 return
 
-            logger.info("[Scheduler] Firing job %d — workflow %d", job_id, job.workflow_id)
-            status = SchedulerService._run_workflow(job.workflow_id, db)
+            # Determine ordered list of workflow IDs to run
+            ordered_ids = job.workflow_ids if job.workflow_ids else [job.workflow_id]
+            ordered_ids = [wid for wid in ordered_ids if wid]  # strip None
+
+            logger.info(
+                "[Scheduler] Firing job %d — running %d workflow(s) in order: %s",
+                job_id, len(ordered_ids), ordered_ids,
+            )
+
+            results = []
+            for wid in ordered_ids:
+                logger.info("[Scheduler] Job %d — starting workflow %d", job_id, wid)
+                wf_status = SchedulerService._run_workflow(wid, db)
+                results.append(wf_status)
+                logger.info("[Scheduler] Job %d — workflow %d finished: %s", job_id, wid, wf_status)
+                if wf_status == "failed":
+                    logger.warning("[Scheduler] Job %d — stopping chain at workflow %d (failed)", job_id, wid)
+                    break  # stop chain on first failure
+
+            # Aggregate status: all success → "success", mix → "partial", all failed → "failed"
+            if all(r == "success" for r in results):
+                overall = "success"
+            elif all(r == "failed" for r in results):
+                overall = "failed"
+            else:
+                overall = "partial"
 
             job.last_run_at = datetime.utcnow()
-            job.last_run_status = status
+            job.last_run_status = overall
             job.run_count = (job.run_count or 0) + 1
             # One-time jobs self-disable after firing
             if job.schedule_type == ScheduleType.ONE_TIME:
                 job.is_enabled = False
             db.commit()
+            logger.info("[Scheduler] Job %d completed — status: %s", job_id, overall)
         except Exception as exc:
             logger.exception("[Scheduler] Job %d failed: %s", job_id, exc)
             db.rollback()

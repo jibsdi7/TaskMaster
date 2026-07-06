@@ -1,4 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
+import { authHeaders, BASE_URL } from '../../api/client';
 import ReactFlow, {
   Background,
   Controls,
@@ -31,9 +32,8 @@ const WorkflowCanvasInner = () => {
   useEffect(() => {
     const fetchBlocks = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:8000/api/blocks', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        const res = await fetch(`${BASE_URL}/api/blocks`, {
+          headers: authHeaders(),
         });
         if (res.ok) {
           const blocks: { id: number; name: string; description: string }[] = await res.json();

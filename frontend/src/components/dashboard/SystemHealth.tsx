@@ -7,6 +7,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import WebIcon from '@mui/icons-material/Web';
 import MouseIcon from '@mui/icons-material/Mouse';
 import { useEffect, useState } from 'react';
+import { BASE_URL } from '../../api/client';
 
 interface ServiceStatus { label: string; status: 'healthy' | 'degraded' | 'down' | 'idle' | 'recording'; detail: string; Icon: any; }
 
@@ -29,7 +30,7 @@ export default function SystemHealth() {
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/health')
+    fetch(`${BASE_URL}/health`)
       .then((r) => setBackendOk(r.ok))
       .catch(() => setBackendOk(false));
   }, []);
