@@ -251,6 +251,23 @@ class SchedulerService:
             workflow_run.completed_at = completed_at if isinstance(completed_at, datetime) else (datetime.fromisoformat(completed_at) if completed_at else None)
             workflow_run.duration_seconds = result.get("duration_seconds")
             workflow_run.result = result.get("result", {})
+
+            # Persist logs (including screenshot_path) so the report and
+            # execution details page work the same as for manual runs.
+            CORE_LOG_KEYS = {"level", "message", "node_id", "timestamp", "screenshot_path", "metadata"}
+            for log_data in result.get("logs", []):
+                extra = {k: v for k, v in log_data.items() if k not in CORE_LOG_KEYS}
+                meta = {**log_data.get("metadata", {}), **extra}
+                log_entry = models.WorkflowLog(
+                    run_id=workflow_run.id,
+                    node_id=log_data.get("node_id"),
+                    level=log_data.get("level", "INFO"),
+                    message=log_data.get("message", ""),
+                    screenshot_path=log_data.get("screenshot_path"),
+                    meta_data=meta,
+                )
+                db.add(log_entry)
+
             db.commit()
             return "success"
 
