@@ -12,6 +12,7 @@ from app.db import models
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate, WorkflowResponse
 from app.core.security import get_current_user
 from app.services.script_generator import ScriptGenerator
+from app.core.audit import log_audit
 
 router = APIRouter()
 
@@ -64,6 +65,11 @@ async def create_workflow(
         )
         db.add(edge)
     
+    log_audit(
+        db, current_user.id, models.AuditAction.WORKFLOW_CREATED,
+        resource_type="workflow", resource_id=workflow.id,
+        details={"name": workflow.name, "node_count": len(workflow_data.nodes), "edge_count": len(workflow_data.edges)},
+    )
     db.commit()
     db.refresh(workflow)
     return WorkflowResponse.from_db(workflow)
@@ -180,6 +186,11 @@ async def update_workflow(
             )
             db.add(edge)
     
+    log_audit(
+        db, current_user.id, models.AuditAction.WORKFLOW_UPDATED,
+        resource_type="workflow", resource_id=workflow_id,
+        details={"name": workflow.name},
+    )
     db.commit()
     db.refresh(workflow)
     return WorkflowResponse.from_db(workflow)
@@ -247,6 +258,11 @@ async def delete_workflow(
         
         # Finally delete the workflow itself
         db.delete(workflow)
+        log_audit(
+            db, current_user.id, models.AuditAction.WORKFLOW_DELETED,
+            resource_type="workflow", resource_id=workflow_id,
+            details={"name": workflow.name},
+        )
         db.commit()
         print(f"[DELETE] Workflow {workflow_id} deleted successfully")
         return None
@@ -560,6 +576,17 @@ async def execute_workflow(
                 meta_data=meta
             )
             db.add(log)
+        log_audit(
+            db, current_user.id, models.AuditAction.WORKFLOW_EXECUTED,
+            resource_type="workflow_run", resource_id=workflow_run.id,
+            details={
+                "workflow_id": workflow_id,
+                "workflow_name": workflow.name,
+                "run_id": run_id,
+                "status": result.get("status"),
+                "duration_seconds": result.get("duration_seconds"),
+            },
+        )
 
         # Self-healing persistence — if any node was healed, write the working
         # selector back into the node's config so future runs use it directly.
@@ -567,7 +594,7 @@ async def execute_workflow(
 
         db.commit()
         db.refresh(workflow_run)
-        
+
         return {
             "run_id": run_id,
             "status": result.get("status", "completed"),
@@ -801,6 +828,14 @@ async def export_workflow_script(
         language=language,
         include_comments=include_comments,
     )
+
+    log_audit(
+        db, current_user.id, models.AuditAction.WORKFLOW_EXPORTED,
+        resource_type="workflow", resource_id=workflow_id,
+        details={"language": language, "workflow_name": workflow.name},
+    )
+    db.commit()
+
     return PlainTextResponse(content=script, media_type="text/plain")
 
 # Made with Bob

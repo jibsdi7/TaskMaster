@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { fmtDate } from '../utils/dateUtils';
+import { authHeaders, BASE_URL } from '../api/client';
 import {
   Box, Typography, Button, Grid, Chip, CircularProgress, Alert,
   IconButton, Tooltip,
@@ -38,7 +40,7 @@ const WorkflowList = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('http://localhost:8000/api/workflows/');
+      const response = await fetch(`${BASE_URL}/api/workflows/`, { headers: authHeaders() });
       if (!response.ok) throw new Error(`Failed to fetch workflows: ${response.statusText}`);
       setWorkflows(await response.json());
     } catch (err) {
@@ -52,10 +54,9 @@ const WorkflowList = () => {
     const url = prompt('Enter the URL to execute the workflow on:', 'https://example.com');
     if (!url) return;
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/api/workflows/${workflowId}/execute`, {
+      const response = await fetch(`${BASE_URL}/api/workflows/${workflowId}/execute`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
       if (!response.ok) throw new Error('Failed to execute workflow');
@@ -69,10 +70,9 @@ const WorkflowList = () => {
   const handleDelete = async (workflowId: number) => {
     if (!confirm('Are you sure you want to delete this workflow?')) return;
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/api/workflows/${workflowId}`, {
+      const response = await fetch(`${BASE_URL}/api/workflows/${workflowId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: authHeaders(),
       });
       if (!response.ok) throw new Error('Failed to delete workflow');
       fetchWorkflows();
@@ -253,7 +253,7 @@ const WorkflowList = () => {
                   </Box>
 
                   <Typography variant="caption" sx={{ color: '#444', mb: 2 }}>
-                    {new Date(workflow.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {fmtDate(workflow.created_at)}
                   </Typography>
 
                   {/* Actions */}

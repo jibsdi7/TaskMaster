@@ -2,9 +2,11 @@
 FlowWeaver - Main FastAPI Application
 """
 import sys
+import os
 import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from app.api.workflows import router as workflows_router
@@ -13,10 +15,13 @@ from app.api.blocks import router as blocks_router
 from app.api.auth import router as auth_router
 from app.api.executions import router as executions_router
 from app.api.projects import router as projects_router
+from app.api.audit import router as audit_router
+from app.api.scheduler import router as scheduler_router
 from app.api.dashboard import router as dashboard_router
 from app.core.config import settings
 from app.db.database import engine
 from app.db import models
+from app.services.scheduler import scheduler_service
 
 # Fix for Windows asyncio subprocess issue with Playwright
 if sys.platform == 'win32':
@@ -66,9 +71,17 @@ async def lifespan(app: FastAPI):
         print("This mode should NEVER be used in production!")
         print("="*60 + "\n")
 
+    # Start background scheduler
+    try:
+        scheduler_service.start()
+        print("[OK] Scheduler started")
+    except Exception as e:
+        print(f"[WARNING] Scheduler could not start: {e}")
+
     yield
-    # Shutdown
-    pass
+
+    # Shutdown scheduler
+    scheduler_service.shutdown()
 
 
 app = FastAPI(
@@ -87,6 +100,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+os.makedirs(settings.SCREENSHOT_DIR, exist_ok=True)
+app.mount("/screenshots", StaticFiles(directory=settings.SCREENSHOT_DIR), name="screenshots")
+
 # Include routers
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(projects_router, prefix="/api/projects", tags=["Projects"])
@@ -94,6 +110,8 @@ app.include_router(workflows_router, prefix="/api/workflows", tags=["Workflows"]
 app.include_router(recorder_router, prefix="/api/recorder", tags=["Recorder"])
 app.include_router(blocks_router, prefix="/api/blocks", tags=["Blocks"])
 app.include_router(executions_router, prefix="/api/executions", tags=["Executions"])
+app.include_router(audit_router, prefix="/api/audit", tags=["Audit"])
+app.include_router(scheduler_router, prefix="/api/scheduler", tags=["Scheduler"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 
 

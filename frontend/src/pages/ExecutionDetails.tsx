@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { fmtDateTime, fmtTime } from '../utils/dateUtils';
+import { authHeaders, BASE_URL } from '../api/client';
 import { useParams } from 'react-router-dom';
 import {
   Box,
@@ -11,6 +13,7 @@ import {
   ListItem,
   ListItemText,
   Divider,
+  Button,
 } from '@mui/material';
 import axios from 'axios';
 
@@ -50,10 +53,6 @@ interface ExecutionRun {
 }
 
 /** Timestamps from the backend are UTC but lack a timezone suffix — normalise */
-function toUTC(iso: string): string {
-  return /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
-}
-
 /**
  * Resolve an enriched field from a log entry.
  * The executor stores them as top-level keys in memory; when persisted to DB
@@ -265,10 +264,13 @@ const ExecutionDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(true);
+  const [downloadingReport, setDownloadingReport] = useState(false);
 
   const fetchExecution = async () => {
     try {
-      const response = await axios.get(`http://localhost:8000/api/executions/${runId}`);
+      const response = await axios.get(`${BASE_URL}/api/executions/${runId}`, {
+        headers: authHeaders(),
+      });
       setExecution(response.data);
       const s = (response.data.status as string).toUpperCase();
       if (s === 'COMPLETED' || s === 'FAILED') {
@@ -280,6 +282,31 @@ const ExecutionDetails = () => {
       setPolling(false);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    if (!runId) return;
+
+    try {
+      setDownloadingReport(true);
+      const response = await axios.get(`${BASE_URL}/api/executions/${runId}/report`, {
+        responseType: 'blob',
+        headers: authHeaders(),
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `execution_report_${runId}.docx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to download report');
+    } finally {
+      setDownloadingReport(false);
     }
   };
 
@@ -330,11 +357,20 @@ const ExecutionDetails = () => {
         <Typography variant="h5" sx={{ color: '#e0e0f0', fontWeight: 700 }}>
           Execution Details
         </Typography>
-        <Chip
-          label={execution.status}
-          color={getStatusColor(execution.status)}
-          sx={{ fontWeight: 700, fontSize: '0.82rem' }}
-        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Button
+            variant="outlined"
+            onClick={handleDownloadReport}
+            disabled={downloadingReport}
+          >
+            {downloadingReport ? 'Downloading...' : 'Download Report'}
+          </Button>
+          <Chip
+            label={execution.status}
+            color={getStatusColor(execution.status)}
+            sx={{ fontWeight: 700, fontSize: '0.82rem' }}
+          />
+        </Box>
       </Box>
 
       {polling && (
@@ -356,8 +392,8 @@ const ExecutionDetails = () => {
           {[
             { label: 'Run ID',        value: <Typography sx={{ ...valueSx, fontFamily: 'monospace', fontSize: '0.78rem', wordBreak: 'break-all' }}>{execution.run_id}</Typography> },
             { label: 'Workflow ID',   value: <Typography sx={valueSx}>{execution.workflow_id}</Typography> },
-            { label: 'Started At',    value: <Typography sx={valueSx}>{new Date(toUTC(execution.started_at)).toLocaleString()}</Typography> },
-            { label: 'Completed At',  value: <Typography sx={valueSx}>{execution.completed_at ? new Date(toUTC(execution.completed_at)).toLocaleString() : '—'}</Typography> },
+            { label: 'Started At',    value: <Typography sx={valueSx}>{fmtDateTime(execution.started_at)}</Typography> },
+            { label: 'Completed At',  value: <Typography sx={valueSx}>{fmtDateTime(execution.completed_at)}</Typography> },
             { label: 'Total Duration',value: <Typography sx={valueSx}>{execution.duration_seconds != null ? `${execution.duration_seconds.toFixed(2)} s` : '—'}</Typography> },
             { label: 'Actions (excl. Delay)', value: <Typography sx={valueSx}>{totalActionMs >= 1000 ? `${(totalActionMs / 1000).toFixed(2)} s` : `${totalActionMs} ms`}</Typography> },
             { label: 'Passed', value: <Typography sx={{ ...valueSx, color: '#68d391' }}>{passCount}</Typography> },
@@ -516,7 +552,7 @@ const ExecutionDetails = () => {
                       }
                       secondary={
                         <Typography variant="caption" sx={{ color: '#555', fontFamily: 'monospace' }}>
-                          {ts ? new Date(ts).toLocaleTimeString() : ''}
+                          {fmtTime(ts)}
                           {lnDms !== undefined && lnType !== 'DELAY'
                             ? `  ·  ${lnDms >= 1000 ? `${(lnDms / 1000).toFixed(2)} s` : `${lnDms} ms`}`
                             : ''}

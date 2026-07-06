@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { authHeaders, BASE_URL } from '../api/client';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactFlow, {
   Background, Controls, MiniMap, ReactFlowProvider,
@@ -14,8 +15,6 @@ import SaveIcon from '@mui/icons-material/Save';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import FitScreenIcon from '@mui/icons-material/FitScreen';
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import StopIcon from '@mui/icons-material/Stop';
 import {
   Mouse as ClickIcon, Keyboard as TypeIcon, CheckBox as SelectIcon,
   TouchApp as HoverIcon, Upload as UploadIcon, ArrowForward as NavigateIcon,
@@ -25,7 +24,6 @@ import {
 } from '@mui/icons-material';
 import { Handle, Position } from 'reactflow';
 import { toast } from 'react-toastify';
-import axios from 'axios';
 import AddNodeButton from '../components/workflow/AddNodeButton';
 import { NODE_COLORS } from '../components/workflow/nodeTemplates';
 
@@ -50,14 +48,22 @@ const PALETTE_NODES = [
 const blockEdgeTypes = { addable: AddNodeButton };
 
 // ── Compact canvas node ─────────────────────────────────────────────────────
-const BlockCanvasNode = ({ id, data }: any) => {
+const BlockCanvasNode = ({ id, data, selected }: any) => {
   const color = NODE_COLORS[data.nodeType] || '#A0A0B4';
   const IconComp = PALETTE_NODES.find(n => n.type === data.nodeType)?.icon ?? ClickIcon;
   return (
-    <Box sx={{ minWidth: 160, backgroundColor: '#1e1e1e', border: `2px solid ${color}`, borderRadius: 2 }}>
+    <Box sx={{
+      minWidth: 160, backgroundColor: '#1e1e1e', borderRadius: '8px',
+      border: selected ? '2px solid #F56565' : `2px solid ${color}`,
+      transition: 'border-color 0.12s',
+    }}>
       <Box sx={{
         display: 'flex', alignItems: 'center', gap: 1, p: 1,
-        backgroundColor: color, borderTopLeftRadius: 6, borderTopRightRadius: 6,
+        backgroundColor: color,
+        borderTopLeftRadius: 6, borderTopRightRadius: 6,
+        ...(selected && {
+          backgroundImage: 'linear-gradient(rgba(245,101,101,0.28), rgba(245,101,101,0.28))',
+        }),
       }}>
         <IconComp sx={{ fontSize: 16, color: 'white' }} />
         <Typography variant="caption" sx={{ flex: 1, color: 'white', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -257,10 +263,15 @@ const BlockCanvasInner = ({
     }]);
   }, [screenToFlowPosition, onNodesChange, onNodeDelete, onSelectNode]);
 
-  // Inject callbacks + edge insertNodeOnEdge handler into every edge's data
+  // Inject callbacks + selection flag (driven by React Flow's own node.selected) into every node's data
   const nodesWithCbs = nodes.map(n => ({
     ...n,
-    data: { ...n.data, onDelete: onNodeDelete, onSettings: onSelectNode },
+    data: {
+      ...n.data,
+      onDelete: onNodeDelete,
+      onSettings: onSelectNode,
+      isSelected: !!n.selected,
+    },
   }));
 
   const edgesWithHandler = edges.map(e => ({
@@ -268,7 +279,6 @@ const BlockCanvasInner = ({
     type: 'addable',
     data: {
       ...(e.data ?? {}),
-      // Pass the local handler so AddNodeButton bypasses the Zustand store
       onInsertNodeOnEdge,
     },
   }));
@@ -334,9 +344,6 @@ const BlockEditor = () => {
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState<string | null>(null);
 
-  // Recording state
-  const [isRecording, setIsRecording] = useState(false);
-
   // New block dialog
   const [nameDialogOpen, setNameDialogOpen] = useState(isNew);
   const [tempName, setTempName]   = useState('');
@@ -355,9 +362,8 @@ const BlockEditor = () => {
     const load = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem('token');
-        const res = await fetch(`http://localhost:8000/api/blocks/${id}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        const res = await fetch(`${BASE_URL}/api/blocks/${id}`, {
+          headers: authHeaders(),
         });
         if (!res.ok) throw new Error('Block not found');
         const block = await res.json();
@@ -366,8 +372,9 @@ const BlockEditor = () => {
         setBlockCategory(block.category || '');
         setBlockVersion(block.current_version);
 
-        const defRes = await fetch(`http://localhost:8000/api/blocks/${id}/definition`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        // Load current version nodes/edges
+        const defRes = await fetch(`${BASE_URL}/api/blocks/${id}/definition`, {
+          headers: authHeaders(),
         });
         if (defRes.ok) {
           const def = await defRes.json();
@@ -462,78 +469,6 @@ const BlockEditor = () => {
     });
   }, []);
 
-  // ── Recording ─────────────────────────────────────────────────────────────
-  const handleRecord = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const url = prompt('Enter the URL to start recording:');
-      if (!url) return;
-
-      await axios.post(
-        'http://localhost:8000/api/recorder/start',
-        { url },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setIsRecording(true);
-      toast.success('Recording started. Perform actions in the browser, then click Stop.');
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to start recording');
-    }
-  };
-
-  const handleStopRecording = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        'http://localhost:8000/api/recorder/stop',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setIsRecording(false);
-
-      const actions = response.data.actions || [];
-      if (actions.length === 0) {
-        toast.info('Recording stopped. No actions captured.');
-        return;
-      }
-
-      // Calculate Y offset so new nodes appear below all existing ones
-      const maxY = nodes.reduce((m, n) => Math.max(m, n.position.y + 120), 0);
-      const yOffset = nodes.length > 0 ? maxY + 60 : 60;
-
-      const prefix = `rec_${Date.now()}_`;
-      const newNodes: Node[] = actions.map((a: any, i: number) => ({
-        id: `${prefix}${i}`,
-        type: 'blockNode',
-        position: { x: 60 + (i % 4) * 240, y: yOffset + Math.floor(i / 4) * 140 },
-        data: {
-          label: a.label || a.action_type || 'Action',
-          nodeType: a.action_type || a.node_type || 'CLICK',
-          config: a.config || { selector: a.selector, value: a.value, url: a.url },
-        },
-      }));
-
-      // Sequential edges connecting recorded nodes
-      const newEdges: Edge[] = newNodes.slice(1).map((n, i) => ({
-        id: `${prefix}e_${i}`,
-        source: newNodes[i].id,
-        target: n.id,
-        type: 'addable',
-        animated: true,
-        style: { stroke: '#5B7CF6', strokeWidth: 2 },
-      }));
-
-      // Append below existing content
-      setNodes(ns => [...ns, ...newNodes]);
-      setEdges(es => [...es, ...newEdges]);
-
-      toast.success(`${actions.length} recorded actions added to canvas`);
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to stop recording');
-      setIsRecording(false);
-    }
-  };
-
   // ── Serialise canvas → backend format ────────────────────────────────────
   const serialiseNodes = () =>
     nodes.map(n => ({
@@ -558,16 +493,12 @@ const BlockEditor = () => {
     if (!blockName.trim()) { toast.error('Block name is required'); return; }
     setSaving(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers: any = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
+      const headers = { ...authHeaders(), 'Content-Type': 'application/json' };
       const nodesPayload = serialiseNodes();
       const edgesPayload = serialiseEdges();
 
       if (isNew) {
-        const res = await fetch('http://localhost:8000/api/blocks', {
+        const res = await fetch(`${BASE_URL}/api/blocks`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -585,7 +516,7 @@ const BlockEditor = () => {
         toast.success(`Block "${created.name}" created`);
         navigate(`/blocks/${created.id}/edit`, { replace: true });
       } else {
-        const res = await fetch(`http://localhost:8000/api/blocks/${id}`, {
+        const res = await fetch(`${BASE_URL}/api/blocks/${id}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({
@@ -685,44 +616,6 @@ const BlockEditor = () => {
               <AutoFixHighIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Tooltip>
-        </Box>
-
-        {/* ── CENTER zone: Record / Stop ── */}
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          {!isRecording ? (
-            <Tooltip title="Record actions into this block">
-              <Button
-                variant="contained" size="small"
-                startIcon={<FiberManualRecordIcon sx={{ fontSize: 13 }} />}
-                onClick={handleRecord}
-                sx={{
-                  height: 30, px: 1.5, fontSize: '0.78rem', whiteSpace: 'nowrap',
-                  background: 'rgba(245,101,101,0.15)', color: '#F56565',
-                  border: '1px solid rgba(245,101,101,0.3)', boxShadow: 'none',
-                  '&:hover': { background: 'rgba(245,101,101,0.25)', boxShadow: 'none' },
-                }}
-              >
-                Record
-              </Button>
-            </Tooltip>
-          ) : (
-            <Tooltip title="Stop recording">
-              <Button
-                variant="contained" size="small"
-                startIcon={<StopIcon sx={{ fontSize: 13 }} />}
-                onClick={handleStopRecording}
-                sx={{
-                  height: 30, px: 1.5, fontSize: '0.78rem', whiteSpace: 'nowrap',
-                  background: 'rgba(245,101,101,0.9)',
-                  boxShadow: '0 0 12px rgba(245,101,101,0.4)',
-                  animation: 'pulse 2s infinite',
-                  '&:hover': { transform: 'none' },
-                }}
-              >
-                Stop
-              </Button>
-            </Tooltip>
-          )}
         </Box>
 
         {/* ── RIGHT zone: Create / Save Block ── */}
@@ -875,7 +768,6 @@ const BlockEditor = () => {
         </Box>
       )}
 
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.65} }`}</style>
     </Box>
   );
 };

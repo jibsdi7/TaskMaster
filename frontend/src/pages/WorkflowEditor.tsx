@@ -1,4 +1,5 @@
-import { useEffect, useCallback, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { authHeaders, BASE_URL } from '../api/client';
 import {
   Box,
   Dialog,
@@ -25,7 +26,6 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
 import CheckIcon from '@mui/icons-material/Check';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useReactFlow } from 'reactflow';
 import WorkflowToolbar, { ReplaySpeed, SPEED_DELAY_MS } from '../components/workflow/WorkflowToolbar';
 import NodePalette from '../components/workflow/NodePalette';
 import WorkflowCanvas from '../components/workflow/WorkflowCanvas';
@@ -33,13 +33,6 @@ import NodeInspector from '../components/workflow/NodeInspector';
 import { useWorkflowStore } from '../store/workflowStore';
 import { toast } from 'react-toastify';
 import axios from 'axios';
-
-// Test mode: Create a mock token for development
-const TEST_MODE = true;
-if (TEST_MODE && !localStorage.getItem('token')) {
-  // This is a mock token for testing - in production, get real token from login
-  localStorage.setItem('token', 'test-token-for-development');
-}
 
 const WorkflowEditor = () => {
   const { id } = useParams<{ id: string }>();
@@ -125,10 +118,9 @@ const WorkflowEditor = () => {
 
   const loadWorkflowFromServer = async (workflowId: string) => {
     try {
-      const token = localStorage.getItem('token');
       console.log('Loading workflow:', workflowId);
-      const response = await axios.get(`http://localhost:8000/api/workflows/${workflowId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await axios.get(`${BASE_URL}/api/workflows/${workflowId}`, {
+        headers: authHeaders(),
       });
 
       const workflow = response.data;
@@ -209,14 +201,12 @@ const WorkflowEditor = () => {
 
   const handleSave = async () => {
     try {
-      const token = localStorage.getItem('token');
-
       // Resolve project_id — only needed for new workflows
       let resolvedProjectId: number | undefined;
       if (!workflowId) {
         // GET /api/projects/default auto-creates "Default Project" if it doesn't exist
-        const projRes = await axios.get('http://localhost:8000/api/projects/default', {
-          headers: { Authorization: `Bearer ${token}` },
+        const projRes = await axios.get(`${BASE_URL}/api/projects/default`, {
+          headers: authHeaders(),
         });
         resolvedProjectId = projRes.data.id;
       }
@@ -249,9 +239,9 @@ const WorkflowEditor = () => {
       if (workflowId) {
         // Update existing workflow — no project_id needed
         response = await axios.put(
-          `http://localhost:8000/api/workflows/${workflowId}`,
+          `${BASE_URL}/api/workflows/${workflowId}`,
           workflowData,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: authHeaders() }
         );
         toast.success('Workflow updated successfully');
         // Re-fetch code if the dialog is currently open so it shows updated nodes
@@ -262,9 +252,9 @@ const WorkflowEditor = () => {
         // Create new workflow
         workflowData.project_id = resolvedProjectId;
         response = await axios.post(
-          'http://localhost:8000/api/workflows/',
+          `${BASE_URL}/api/workflows/`,
           workflowData,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: authHeaders() }
         );
         setWorkflowId(response.data.id);
         navigate(`/workflows/${response.data.id}`);
@@ -287,9 +277,8 @@ const WorkflowEditor = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:8000/api/workflows/${workflowId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      await axios.delete(`${BASE_URL}/api/workflows/${workflowId}`, {
+        headers: authHeaders(),
       });
       toast.success('Workflow deleted successfully');
       navigate('/workflows');
@@ -340,23 +329,15 @@ const WorkflowEditor = () => {
 
   const handleRecord = async () => {
     try {
-      // Ensure test token exists
-      let token = localStorage.getItem('token');
-      if (!token && TEST_MODE) {
-        token = 'test-token-for-development';
-        localStorage.setItem('token', token);
-      }
-      
       const url = prompt('Enter URL to record:');
       if (!url) return;
 
       console.log('Starting recording with URL:', url);
-      console.log('Using token:', token ? 'Token present' : 'No token');
 
       const response = await axios.post(
-        'http://localhost:8000/api/recorder/start',
+        `${BASE_URL}/api/recorder/start`,
         { url },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
 
       console.log('Recording started:', response.data);
@@ -374,8 +355,6 @@ const WorkflowEditor = () => {
 
   const handleStopRecording = async () => {
     try {
-      const token = localStorage.getItem('token');
-      
       // Ask user if they want to save as workflow
       const saveAsWorkflow = window.confirm('Save recording as a workflow?');
       
@@ -397,12 +376,9 @@ const WorkflowEditor = () => {
       }
       
       const response = await axios.post(
-        'http://localhost:8000/api/recorder/stop',
-        {}, // Empty body - backend expects query params
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          params: params
-        }
+        `${BASE_URL}/api/recorder/stop`,
+        {},
+        { headers: authHeaders(), params: params }
       );
 
       setIsRecording(false);
@@ -433,13 +409,11 @@ const WorkflowEditor = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
       setStatus('running');
-
       const response = await axios.post(
-        `http://localhost:8000/api/workflows/${workflowId}/execute`,
+        `${BASE_URL}/api/workflows/${workflowId}/execute`,
         { step_delay_ms: SPEED_DELAY_MS[replaySpeed] },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
 
       setStatus('idle');
@@ -465,12 +439,11 @@ const WorkflowEditor = () => {
     }
     try {
       setCodeLoading(true);
-      const token = localStorage.getItem('token');
       const response = await axios.get(
-        `http://localhost:8000/api/workflows/${workflowId}/export-script`,
+        `${BASE_URL}/api/workflows/${workflowId}/export-script`,
         {
           params: { language: lang, include_comments: true },
-          headers: { Authorization: `Bearer ${token}` },
+          headers: authHeaders(),
           responseType: 'text',
         }
       );
@@ -542,8 +515,6 @@ const WorkflowEditor = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      
       const blockData = {
         name: blockName.trim(),
         description: blockDescription.trim() || 'Block created from workflow',
@@ -575,9 +546,9 @@ const WorkflowEditor = () => {
       };
 
       await axios.post(
-        'http://localhost:8000/api/blocks',
+        `${BASE_URL}/api/blocks`,
         blockData,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
 
       setSaveBlockDialogOpen(false);
@@ -622,14 +593,13 @@ const WorkflowEditor = () => {
     }
     setSelBlockSaving(true);
     try {
-      const token = localStorage.getItem('token');
       const selectedNodes = nodes.filter((n) => selectedNodeIds.includes(n.id));
       const selectedEdges = edges.filter(
         (e) => selectedNodeIds.includes(e.source) && selectedNodeIds.includes(e.target)
       );
 
       const res = await axios.post(
-        'http://localhost:8000/api/blocks',
+        `${BASE_URL}/api/blocks`,
         {
           name: selBlockName.trim(),
           description: selBlockDescription.trim() || null,
@@ -657,7 +627,7 @@ const WorkflowEditor = () => {
           outputs: [],
           metadata: { created_from_selection: true },
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
 
       const created = res.data;
@@ -711,14 +681,13 @@ const WorkflowEditor = () => {
     }
     try {
       setImportScriptLoading(true);
-      const token = localStorage.getItem('token');
       const response = await axios.post(
-        'http://localhost:8000/api/recorder/import-script',
+        `${BASE_URL}/api/recorder/import-script`,
         {
           playwright_script: importScriptText.trim(),
           workflow_name: importScriptName.trim(),
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
       setImportScriptOpen(false);
       toast.success(`Imported "${response.data.workflow_name}" — ${response.data.nodes_count} nodes`);
@@ -735,9 +704,8 @@ const WorkflowEditor = () => {
     setImportBlockOpen(true);
     setImportBlocksLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:8000/api/blocks', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const res = await fetch(`${BASE_URL}/api/blocks`, {
+        headers: authHeaders(),
       });
       if (res.ok) setImportBlocks(await res.json());
     } catch {

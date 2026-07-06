@@ -47,8 +47,8 @@ interface WorkflowToolbarProps {
   onRun: () => void;
   onUndo: () => void;
   onRedo: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
   onFitView: () => void;
   onAutoLayout: () => void;
   onSaveAsBlock: () => void;
@@ -62,10 +62,11 @@ interface WorkflowToolbarProps {
 }
 
 const Sep = () => (
-  <Divider orientation="vertical" flexItem sx={{ borderColor: '#242424', mx: 0.5 }} />
+  <Divider orientation="vertical" flexItem sx={{ borderColor: '#242424', mx: 0.5, my: 0.75 }} />
 );
 
-const TB = ({ title, children, onClick, disabled = false }: any) => (
+// Labeled toolbar button: icon on top, label underneath
+const TB = ({ title, label, children, onClick, disabled = false }: any) => (
   <Tooltip title={title}>
     <span>
       <IconButton
@@ -75,13 +76,24 @@ const TB = ({ title, children, onClick, disabled = false }: any) => (
         sx={{
           color: disabled ? '#333' : '#A0A0B4',
           borderRadius: '7px',
-          width: 30,
-          height: 30,
+          width: 44,
+          height: 44,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '2px',
           '&:hover': { backgroundColor: '#242424', color: '#E0E0F0' },
           '&.Mui-disabled': { color: '#333' },
         }}
       >
         {children}
+        <Typography sx={{
+          fontSize: '0.6rem', lineHeight: 1, color: 'inherit',
+          whiteSpace: 'nowrap', fontWeight: 500, letterSpacing: '0.01em',
+        }}>
+          {label}
+        </Typography>
       </IconButton>
     </span>
   </Tooltip>
@@ -91,7 +103,7 @@ const WorkflowToolbar = ({
   workflowName, onRenameWorkflow, status, isRecording, canUndo, canRedo,
   onNew, onSave, onDelete, onImport, onExport,
   onRecord, onStopRecording, onRun, onUndo, onRedo,
-  onZoomIn, onZoomOut, onFitView, onAutoLayout, onSaveAsBlock, onSaveSelectionAsBlock,
+  onFitView, onAutoLayout, onSaveAsBlock, onSaveSelectionAsBlock,
   selectedNodeCount, onImportBlock, onViewCode, onImportScript,
   replaySpeed, onReplaySpeedChange,
 }: WorkflowToolbarProps) => {
@@ -119,7 +131,7 @@ const WorkflowToolbar = ({
   return (
     <Box
       sx={{
-        height: 52,
+        height: 60,
         backgroundColor: '#141414',
         borderBottom: '1px solid #242424',
         display: 'flex',
@@ -218,36 +230,37 @@ const WorkflowToolbar = ({
       <Sep />
 
       {/* File actions */}
-      <TB title="New" onClick={onNew}><NewIcon sx={{ fontSize: 16 }} /></TB>
-      <TB title="Save" onClick={onSave}><SaveIcon sx={{ fontSize: 16 }} /></TB>
-      <TB title="Save as Block (whole workflow)" onClick={onSaveAsBlock}><BlockIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="New workflow" label="New" onClick={onNew}><NewIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Save workflow" label="Save" onClick={onSave}><SaveIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Save whole workflow as a reusable Block" label="To Block" onClick={onSaveAsBlock}><BlockIcon sx={{ fontSize: 16 }} /></TB>
       <TB
         title={selectedNodeCount >= 2 ? `Save ${selectedNodeCount} selected nodes as Block` : 'Select ≥2 nodes to save as Block'}
+        label="Selection"
         onClick={onSaveSelectionAsBlock}
         disabled={selectedNodeCount < 2}
       >
         <BlockIcon sx={{ fontSize: 16, color: selectedNodeCount >= 2 ? '#7B96F9' : undefined }} />
       </TB>
-      <TB title="Import Block into canvas" onClick={onImportBlock}>
+      <TB title="Import a Block onto the canvas" label="Block" onClick={onImportBlock}>
         <ImportBlockIcon sx={{ fontSize: 16 }} />
       </TB>
-      <TB title="Delete" onClick={onDelete}><DeleteIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Delete workflow" label="Delete" onClick={onDelete}><DeleteIcon sx={{ fontSize: 16 }} /></TB>
 
       <Sep />
 
       {/* Import / Export / Code */}
-      <TB title="Import JSON" onClick={onImport}><ImportIcon sx={{ fontSize: 16 }} /></TB>
-      <TB title="Export JSON" onClick={onExport}><ExportIcon sx={{ fontSize: 16 }} /></TB>
-      <TB title="Import Playwright Script" onClick={onImportScript}>
+      <TB title="Import workflow from JSON" label="Import" onClick={onImport}><ImportIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Export workflow to JSON" label="Export" onClick={onExport}><ExportIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Import a Playwright script" label="Script" onClick={onImportScript}>
         <ImportScriptIcon sx={{ fontSize: 16 }} />
       </TB>
-      <TB title="View Code" onClick={onViewCode}><CodeIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="View generated code" label="Code" onClick={onViewCode}><CodeIcon sx={{ fontSize: 16 }} /></TB>
 
       <Sep />
 
       {/* Record */}
       {!isRecording ? (
-        <Tooltip title="Start Recording">
+        <Tooltip title="Start Recording browser actions">
           <Button
             variant="contained"
             color="error"
@@ -255,16 +268,14 @@ const WorkflowToolbar = ({
             onClick={onRecord}
             size="small"
             sx={{
-              height: 30, px: 1.5, fontSize: '0.78rem',
+              height: 44, px: 1.5, fontSize: '0.78rem', flexDirection: 'column',
+              gap: '2px', lineHeight: 1,
               background: 'rgba(245,101,101,0.15)',
               color: '#F56565',
               border: '1px solid rgba(245,101,101,0.3)',
               boxShadow: 'none',
-              '&:hover': {
-                background: 'rgba(245,101,101,0.25)',
-                boxShadow: 'none',
-                transform: 'none',
-              },
+              '& .MuiButton-startIcon': { margin: 0 },
+              '&:hover': { background: 'rgba(245,101,101,0.25)', boxShadow: 'none', transform: 'none' },
             }}
           >
             Record
@@ -279,10 +290,12 @@ const WorkflowToolbar = ({
             onClick={onStopRecording}
             size="small"
             sx={{
-              height: 30, px: 1.5, fontSize: '0.78rem',
+              height: 44, px: 1.5, fontSize: '0.78rem', flexDirection: 'column',
+              gap: '2px', lineHeight: 1,
               background: 'rgba(245,101,101,0.9)',
               boxShadow: '0 0 12px rgba(245,101,101,0.4)',
               animation: 'pulse 2s infinite',
+              '& .MuiButton-startIcon': { margin: 0 },
               '&:hover': { transform: 'none' },
             }}
           >
@@ -292,32 +305,35 @@ const WorkflowToolbar = ({
       )}
 
       {/* Speed selector */}
-      <Tooltip title="Replay speed — delay between each step">
-        <Select
-          value={replaySpeed}
-          onChange={(e) => onReplaySpeedChange(e.target.value as ReplaySpeed)}
-          disabled={status === 'running'}
-          size="small"
-          variant="outlined"
-          sx={{
-            height: 30,
-            fontSize: '0.75rem',
-            color: '#A0A0B4',
-            backgroundColor: '#1a1a1a',
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2a2a2a' },
-            '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#3a3a3a' },
-            '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#48BB78' },
-            '& .MuiSvgIcon-root': { color: '#555' },
-            '& .MuiSelect-select': { py: '5px', pl: 1 },
-          }}
-        >
-          <MenuItem value="very_slow" sx={{ fontSize: '0.78rem' }}>🐌 Very Slow</MenuItem>
-          <MenuItem value="slow"      sx={{ fontSize: '0.78rem' }}>🐢 Slow</MenuItem>
-          <MenuItem value="normal"    sx={{ fontSize: '0.78rem' }}>▶ Normal</MenuItem>
-          <MenuItem value="fast"      sx={{ fontSize: '0.78rem' }}>⚡ Fast</MenuItem>
-          <MenuItem value="instant"   sx={{ fontSize: '0.78rem' }}>⚡⚡ Instant</MenuItem>
-        </Select>
-      </Tooltip>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+        <Tooltip title="Replay speed — delay between each step">
+          <Select
+            value={replaySpeed}
+            onChange={(e) => onReplaySpeedChange(e.target.value as ReplaySpeed)}
+            disabled={status === 'running'}
+            size="small"
+            variant="outlined"
+            sx={{
+              height: 26,
+              fontSize: '0.72rem',
+              color: '#A0A0B4',
+              backgroundColor: '#1a1a1a',
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2a2a2a' },
+              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#3a3a3a' },
+              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#48BB78' },
+              '& .MuiSvgIcon-root': { color: '#555' },
+              '& .MuiSelect-select': { py: '3px', pl: 1 },
+            }}
+          >
+            <MenuItem value="very_slow" sx={{ fontSize: '0.78rem' }}>🐌 Very Slow</MenuItem>
+            <MenuItem value="slow"      sx={{ fontSize: '0.78rem' }}>🐢 Slow</MenuItem>
+            <MenuItem value="normal"    sx={{ fontSize: '0.78rem' }}>▶ Normal</MenuItem>
+            <MenuItem value="fast"      sx={{ fontSize: '0.78rem' }}>⚡ Fast</MenuItem>
+            <MenuItem value="instant"   sx={{ fontSize: '0.78rem' }}>⚡⚡ Instant</MenuItem>
+          </Select>
+        </Tooltip>
+        <Typography sx={{ fontSize: '0.6rem', color: '#555', fontWeight: 500, lineHeight: 1 }}>Speed</Typography>
+      </Box>
 
       {/* Run */}
       <Tooltip title="Run Workflow">
@@ -330,13 +346,13 @@ const WorkflowToolbar = ({
             disabled={status === 'running'}
             size="small"
             sx={{
-              height: 30, px: 1.5, fontSize: '0.78rem',
-              background: status === 'running'
-                ? 'rgba(72,187,120,0.1)'
-                : 'rgba(72,187,120,0.15)',
+              height: 44, px: 1.5, fontSize: '0.78rem', flexDirection: 'column',
+              gap: '2px', lineHeight: 1,
+              background: status === 'running' ? 'rgba(72,187,120,0.1)' : 'rgba(72,187,120,0.15)',
               color: status === 'running' ? '#2d6a47' : '#48BB78',
               border: `1px solid ${status === 'running' ? '#1d4a31' : 'rgba(72,187,120,0.3)'}`,
               boxShadow: 'none',
+              '& .MuiButton-startIcon': { margin: 0 },
               '&:hover': { background: 'rgba(72,187,120,0.25)', boxShadow: 'none', transform: 'none' },
               '&.Mui-disabled': { color: '#2d6a47', borderColor: '#1d4a31' },
             }}
@@ -349,18 +365,18 @@ const WorkflowToolbar = ({
       <Sep />
 
       {/* Undo / Redo */}
-      <TB title="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>
+      <TB title="Undo (Ctrl+Z)" label="Undo" onClick={onUndo} disabled={!canUndo}>
         <UndoIcon sx={{ fontSize: 15 }} />
       </TB>
-      <TB title="Redo (Ctrl+Y)" onClick={onRedo} disabled={!canRedo}>
+      <TB title="Redo (Ctrl+Y)" label="Redo" onClick={onRedo} disabled={!canRedo}>
         <RedoIcon sx={{ fontSize: 15 }} />
       </TB>
 
       <Sep />
 
       {/* View */}
-      <TB title="Fit View" onClick={onFitView}><FitViewIcon sx={{ fontSize: 16 }} /></TB>
-      <TB title="Auto Layout" onClick={onAutoLayout}><AutoLayoutIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Fit all nodes into view" label="Fit View" onClick={onFitView}><FitViewIcon sx={{ fontSize: 16 }} /></TB>
+      <TB title="Auto arrange all nodes" label="Layout" onClick={onAutoLayout}><AutoLayoutIcon sx={{ fontSize: 16 }} /></TB>
 
       <style>{`
         @keyframes pulse {

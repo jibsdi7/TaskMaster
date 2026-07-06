@@ -49,6 +49,7 @@ const AddNodeButton = ({
   style,
   markerEnd,
   data,
+  selected,
 }: AddNodeButtonProps) => {
   const [popupAnchor, setPopupAnchor] = useState<HTMLElement | null>(null);
   const popupOpenRef = useRef(false);
@@ -113,6 +114,10 @@ const AddNodeButton = ({
     [id, insertNodeOnEdge]
   );
 
+  const edgeStyle = selected
+    ? { ...style, stroke: '#F56565', strokeWidth: 2.5 }
+    : style;
+
   return (
     <>
       {/* SVG layer: visible edge path + wide transparent hover hit-area */}
@@ -123,7 +128,7 @@ const AddNodeButton = ({
           stroke="transparent"
           strokeWidth={20}
         />
-        <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+        <BaseEdge path={edgePath} markerEnd={markerEnd} style={edgeStyle} />
       </g>
 
       {/* HTML layer: ➕ button, portalled via EdgeLabelRenderer */}

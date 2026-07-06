@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, IconButton, Tooltip, MenuItem, Select,
-  FormControl, Divider, Tabs, Tab, Alert,
+  FormControl, Tabs, Tab, Alert,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SummaryCards from '../components/dashboard/SummaryCards';
@@ -14,7 +14,8 @@ import WorkflowCards from '../components/dashboard/WorkflowCards';
 import ReusableBlocksWidget from '../components/dashboard/ReusableBlocksWidget';
 import RightPanel from '../components/dashboard/RightPanel';
 
-const API = 'http://localhost:8000/api';
+import { authHeaders, BASE_URL } from '../api/client';
+const API = `${BASE_URL}/api`;
 
 export interface DashboardData {
   totalWorkflows: number;
@@ -57,9 +58,7 @@ const Dashboard = () => {
   const [blocks, setBlocks] = useState<any[]>([]);
   const [wfLoading, setWfLoading] = useState(true);
 
-  const token = localStorage.getItem('token') ?? '';
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...authHeaders() };
 
   const fetchDashboard = useCallback(async (days: number) => {
     try {

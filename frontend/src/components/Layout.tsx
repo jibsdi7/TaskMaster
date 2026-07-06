@@ -1,16 +1,15 @@
-import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
   Typography,
   Tooltip,
-  Chip,
 } from '@mui/material';
 import {
   AccountTree as WorkflowIcon,
   PlayCircleOutline as ExecutionsIcon,
   ViewModule as BlocksIcon,
   Circle as DotIcon,
+  Schedule as ScheduleIcon,
 } from '@mui/icons-material';
 import { useAuthStore } from '../store/authStore';
 
@@ -20,6 +19,7 @@ const navItems = [
   { label: 'Workflows',  icon: WorkflowIcon,   path: '/workflows' },
   { label: 'Executions', icon: ExecutionsIcon, path: '/executions' },
   { label: 'Blocks',     icon: BlocksIcon,     path: '/blocks' },
+  { label: 'Scheduler',  icon: ScheduleIcon,   path: '/scheduler' },
 ];
 
 const Layout = () => {
