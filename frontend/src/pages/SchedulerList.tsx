@@ -17,8 +17,9 @@ import { fmtDateTime } from '../utils/dateUtils';
 export interface ScheduledJob {
   id: number;
   name: string;
-  workflow_id: number;
-  workflow_name: string | null;
+  workflow_id: number | null;
+  workflow_ids: number[];
+  workflow_names: string[];
   schedule_type: 'one_time' | 'cron';
   run_at: string | null;
   cron_expression: string | null;
@@ -33,17 +34,28 @@ export interface ScheduledJob {
 const cellSx = { color: '#CCC', borderBottom: '1px solid #2a2a2a', py: 1.5 };
 const headSx = { color: '#888', borderBottom: '1px solid #333', fontWeight: 600, fontSize: 12, textTransform: 'uppercase' as const, letterSpacing: '0.05em', py: 1.5 };
 
+const POLL_INTERVAL_MS = 8000; // refresh every 8 s to catch completed runs
+
 const SchedulerList = () => {
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // Initial load
   useEffect(() => { fetchJobs(); }, []);
 
-  const fetchJobs = async () => {
+  // Auto-refresh polling — keeps the page live without a manual refresh
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetchJobs(false); // silent refresh (no spinner)
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const fetchJobs = async (showSpinner = true) => {
     try {
-      setLoading(true);
+      if (showSpinner) setLoading(true);
       setError(null);
       const res = await fetch(`${BASE_URL}/api/scheduler/`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`Failed to fetch schedules: ${res.statusText}`);
@@ -51,7 +63,7 @@ const SchedulerList = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load schedules');
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   };
 
@@ -174,7 +186,18 @@ const SchedulerList = () => {
                         <Typography variant="body2" sx={{ color: '#E0E0F0', fontWeight: 500 }}>{job.name}</Typography>
                       </TableCell>
                       <TableCell sx={cellSx}>
-                        <Typography variant="body2" sx={{ color: '#AAB' }}>{job.workflow_name ?? `#${job.workflow_id}`}</Typography>
+                        {job.workflow_names && job.workflow_names.length > 0 ? (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                            {job.workflow_names.map((name, i) => (
+                              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Typography variant="caption" sx={{ color: '#555', fontFamily: 'monospace', minWidth: 14 }}>{i + 1}.</Typography>
+                                <Typography variant="body2" sx={{ color: '#AAB' }}>{name}</Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: '#AAB' }}>{`#${job.workflow_id}`}</Typography>
+                        )}
                       </TableCell>
                       <TableCell sx={cellSx}>
                         <Chip
@@ -201,8 +224,14 @@ const SchedulerList = () => {
                               size="small"
                               sx={{
                                 mt: 0.5, height: 16, fontSize: 10,
-                                backgroundColor: job.last_run_status === 'success' ? 'rgba(72,187,120,0.12)' : 'rgba(245,101,101,0.12)',
-                                color: job.last_run_status === 'success' ? '#48BB78' : '#F56565',
+                                backgroundColor:
+                                  job.last_run_status === 'success' ? 'rgba(72,187,120,0.12)' :
+                                  job.last_run_status === 'partial' ? 'rgba(246,173,85,0.12)' :
+                                  'rgba(245,101,101,0.12)',
+                                color:
+                                  job.last_run_status === 'success' ? '#48BB78' :
+                                  job.last_run_status === 'partial' ? '#F6AD55' :
+                                  '#F56565',
                               }}
                             />
                           )}
@@ -220,6 +249,7 @@ const SchedulerList = () => {
                           <Chip label="Disabled" size="small" sx={{ backgroundColor: 'rgba(160,160,180,0.08)', color: '#666', border: '1px solid #333' }} />
                         )}
                       </TableCell>
+                      {/* last_run_status chip: also show "partial" */}
                       <TableCell sx={{ ...cellSx, textAlign: 'right' }}>
                         <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                           {!fired && (

@@ -25,7 +25,8 @@ router = APIRouter()
 
 class ScheduledJobCreate(BaseModel):
     name: str
-    workflow_id: int
+    # Ordered list of workflow IDs to execute sequentially
+    workflow_ids: List[int]
     schedule_type: str          # "one_time" | "cron"
     run_at: Optional[datetime] = None          # required for one_time
     cron_expression: Optional[str] = None      # required for cron
@@ -35,6 +36,15 @@ class ScheduledJobCreate(BaseModel):
     def _validate_type(cls, v: str) -> str:
         if v not in ("one_time", "cron"):
             raise ValueError("schedule_type must be 'one_time' or 'cron'")
+        return v
+
+    @field_validator("workflow_ids")
+    @classmethod
+    def _validate_workflow_ids(cls, v: List[int]) -> List[int]:
+        if not v:
+            raise ValueError("At least one workflow must be selected")
+        if len(v) != len(set(v)):
+            raise ValueError("Duplicate workflow IDs are not allowed")
         return v
 
     @field_validator("cron_expression")
@@ -51,7 +61,8 @@ class ScheduledJobCreate(BaseModel):
 class ScheduledJobResponse(BaseModel):
     id: int
     name: str
-    workflow_id: int
+    workflow_id: Optional[int]
+    workflow_ids: List[int]
     creator_id: int
     schedule_type: str
     run_at: Optional[datetime]
@@ -62,8 +73,8 @@ class ScheduledJobResponse(BaseModel):
     run_count: int
     created_at: datetime
     updated_at: Optional[datetime]
-    # Convenience: resolved workflow name
-    workflow_name: Optional[str] = None
+    # Resolved workflow names in execution order
+    workflow_names: List[str] = []
 
     class Config:
         from_attributes = True
@@ -73,11 +84,22 @@ class ScheduledJobResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _to_response(job: models.ScheduledJob) -> ScheduledJobResponse:
+def _resolve_workflow_names(job: models.ScheduledJob, db: Session) -> List[str]:
+    """Return workflow names in the order defined by workflow_ids."""
+    ids = job.workflow_ids or []
+    if not ids:
+        return [job.workflow.name] if job.workflow else []
+    workflows = db.query(models.Workflow).filter(models.Workflow.id.in_(ids)).all()
+    wf_map = {wf.id: wf.name for wf in workflows}
+    return [wf_map.get(wid, f"#{wid}") for wid in ids]
+
+
+def _to_response(job: models.ScheduledJob, db: Session) -> ScheduledJobResponse:
     return ScheduledJobResponse(
         id=job.id,
         name=job.name,
         workflow_id=job.workflow_id,
+        workflow_ids=job.workflow_ids or [],
         creator_id=job.creator_id,
         schedule_type=job.schedule_type.value,
         run_at=job.run_at,
@@ -88,7 +110,7 @@ def _to_response(job: models.ScheduledJob) -> ScheduledJobResponse:
         run_count=job.run_count or 0,
         created_at=job.created_at,
         updated_at=job.updated_at,
-        workflow_name=job.workflow.name if job.workflow else None,
+        workflow_names=_resolve_workflow_names(job, db),
     )
 
 
@@ -116,7 +138,7 @@ def list_schedules(
         .order_by(models.ScheduledJob.created_at.desc())
         .all()
     )
-    return [_to_response(j) for j in jobs]
+    return [_to_response(j, db) for j in jobs]
 
 
 @router.post("/", response_model=ScheduledJobResponse, status_code=status.HTTP_201_CREATED)
@@ -125,16 +147,19 @@ def create_schedule(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Create a new scheduled job."""
-    # Validate the target workflow is owned by this user
-    workflow = db.query(models.Workflow).filter(
-        models.Workflow.id == payload.workflow_id,
-        models.Workflow.creator_id == current_user.id,
-    ).first()
-    if not workflow:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    """Create a new scheduled job with an ordered list of workflows."""
+    # Validate all workflows exist and belong to the user
+    for wid in payload.workflow_ids:
+        wf = db.query(models.Workflow).filter(
+            models.Workflow.id == wid,
+            models.Workflow.creator_id == current_user.id,
+        ).first()
+        if not wf:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow #{wid} not found or not owned by you",
+            )
 
-    # Validate required fields per type
     if payload.schedule_type == "one_time" and payload.run_at is None:
         raise HTTPException(status_code=400, detail="run_at is required for one_time schedules")
     if payload.schedule_type == "cron" and not payload.cron_expression:
@@ -142,7 +167,8 @@ def create_schedule(
 
     job = models.ScheduledJob(
         name=payload.name,
-        workflow_id=payload.workflow_id,
+        workflow_id=payload.workflow_ids[0],   # primary FK = first workflow
+        workflow_ids=payload.workflow_ids,
         creator_id=current_user.id,
         schedule_type=models.ScheduleType(payload.schedule_type),
         run_at=payload.run_at,
@@ -156,7 +182,7 @@ def create_schedule(
     # Register with APScheduler
     scheduler_service.add_job(job.id, payload.schedule_type, payload.run_at, payload.cron_expression)
 
-    return _to_response(job)
+    return _to_response(job, db)
 
 
 @router.patch("/{job_id}/toggle", response_model=ScheduledJobResponse)
@@ -178,7 +204,7 @@ def toggle_schedule(
     else:
         scheduler_service.remove_job(job.id)
 
-    return _to_response(job)
+    return _to_response(job, db)
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
