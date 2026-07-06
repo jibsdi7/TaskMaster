@@ -5,8 +5,6 @@ import {
   FormControl, Tabs, Tab, Alert,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-
 import SummaryCards from '../components/dashboard/SummaryCards';
 import ExecutionTrendChart from '../components/dashboard/ExecutionTrendChart';
 import ExecutionStatusDonut from '../components/dashboard/ExecutionStatusDonut';
@@ -40,6 +38,8 @@ export interface DashboardData {
     duration_seconds: number | null;
     triggered_by: string;
   }[];
+  recentWorkflowsCreated: { name: string; created_at: string | null }[];
+  recentBlocksCreated:    { name: string; created_at: string | null }[];
 }
 
 const DATE_RANGES = [
@@ -141,14 +141,8 @@ const Dashboard = () => {
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {/* Logo */}
-          <Box sx={{
-            width: 42, height: 42, borderRadius: '12px',
-            background: 'linear-gradient(135deg, #5B7CF6 0%, #7C5CF6 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 0 16px rgba(91,124,246,0.4)',
-            flexShrink: 0,
-          }}>
-            <DashboardIcon sx={{ fontSize: 22, color: '#FFFFFF' }} />
+          <Box sx={{ width: 42, height: 42, flexShrink: 0 }}>
+            <img src="/logo.png" alt="FlowWeaver" style={{ width: 42, height: 42, borderRadius: 12, display: 'block', objectFit: 'contain' }} />
           </Box>
           <Box>
             <Typography variant="h5" sx={{ color: '#FFFFFF', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.01em' }}>
@@ -244,7 +238,33 @@ const Dashboard = () => {
 
           {/* Right panel — 260px fixed */}
           <Box sx={{ width: 260, flexShrink: 0, display: { xs: 'none', lg: 'block' } }}>
-            <RightPanel />
+            <RightPanel activities={[
+              // Execution runs → Workflow Executed / Execution Failed
+              ...(data?.recentExecutions ?? []).map((r) => ({
+                type:      r.status === 'completed' ? 'Execution Completed'
+                         : r.status === 'failed'    ? 'Execution Failed'
+                         : 'Workflow Executed',
+                label:     r.status === 'completed' ? 'Execution Completed'
+                         : r.status === 'failed'    ? 'Execution Failed'
+                         : 'Execution Running',
+                timestamp: r.started_at ?? r.completed_at ?? new Date().toISOString(),
+                detail:    `${r.workflow_name} — ${r.status.toUpperCase()}`,
+              })),
+              // Workflows created
+              ...(data?.recentWorkflowsCreated ?? []).map((w) => ({
+                type:      'Workflow Created',
+                label:     'Workflow Created',
+                timestamp: w.created_at ?? new Date().toISOString(),
+                detail:    `${w.name} — CREATED`,
+              })),
+              // Blocks created
+              ...(data?.recentBlocksCreated ?? []).map((b) => ({
+                type:      'Block Created',
+                label:     'Block Created',
+                timestamp: b.created_at ?? new Date().toISOString(),
+                detail:    `${b.name} — CREATED`,
+              })),
+            ]} />
           </Box>
         </Box>
       </Box>
