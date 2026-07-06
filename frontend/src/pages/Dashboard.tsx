@@ -1,4 +1,4 @@
-// Dashboard.tsx — FlowWeaver main dashboard page
+// Dashboard.tsx — TaskMaster main dashboard page
 import { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, IconButton, Tooltip, MenuItem, Select,
@@ -153,7 +153,7 @@ const Dashboard = () => {
           </Box>
           <Box>
             <Typography variant="h5" sx={{ color: '#FFFFFF', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.01em' }}>
-              FlowWeaver
+              TaskMaster
             </Typography>
             <Typography variant="caption" sx={{ color: '#555', fontWeight: 500, letterSpacing: '0.04em', fontSize: '0.7rem' }}>
               Record · Automate · Orchestrate · Deliver

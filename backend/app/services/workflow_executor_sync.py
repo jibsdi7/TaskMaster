@@ -1,8 +1,10 @@
 """
-Synchronous Workflow Execution Engine for Windows compatibility
-Uses Playwright's sync API to avoid asyncio subprocess issues on Windows
+Synchronous Workflow Execution Engine for Windows compatibility.
+Uses Playwright's sync API for web nodes and PyAutoGUI for desktop nodes.
+Browser is only launched when the workflow contains web nodes.
 """
 import time
+import subprocess as _subprocess
 from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
 from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext
@@ -11,6 +13,41 @@ import os
 from app.core.config import settings
 from app.db.models import NodeType, WorkflowStatus
 from app.services.self_healing import SelfHealingLocator
+
+# ── Optional PyAutoGUI (desktop execution) ───────────────────────────────────
+_PYAUTOGUI_AVAILABLE = False
+try:
+    import pyautogui as _pyautogui
+    _pyautogui.FAILSAFE = True
+    _pyautogui.PAUSE = 0.05
+    _PYAUTOGUI_AVAILABLE = True
+except ImportError:
+    pass
+
+_DESKTOP_NODE_TYPES = {
+    NodeType.DESKTOP_CLICK.value,
+    NodeType.DESKTOP_TYPE.value,
+    NodeType.DESKTOP_HOTKEY.value,
+    NodeType.DESKTOP_MOVE.value,
+    NodeType.DESKTOP_DRAG.value,
+    NodeType.DESKTOP_SCROLL.value,
+    NodeType.DESKTOP_SCREENSHOT.value,
+    NodeType.DESKTOP_FIND_IMAGE.value,
+    NodeType.DESKTOP_LAUNCH_APP.value,
+    NodeType.DESKTOP_CLOSE_APP.value,
+    NodeType.DESKTOP_SWITCH_WINDOW.value,
+}
+
+_WEB_NODE_TYPES = {
+    NodeType.OPEN_URL.value,
+    NodeType.CLICK.value,
+    NodeType.TYPE.value,
+    NodeType.SELECT.value,
+    NodeType.HOVER.value,
+    NodeType.UPLOAD_FILE.value,
+    NodeType.BACK.value,
+    NodeType.REFRESH.value,
+}
 
 
 class ExecutionContext:
@@ -73,33 +110,38 @@ class WorkflowExecutorSync:
             self.execution_context.set_variable(key, value)
         
         start_time = datetime.utcnow()
-        
+
+        # Only launch a browser if the workflow contains web nodes
+        has_web_nodes = any(n.get("node_type") in _WEB_NODE_TYPES for n in nodes)
+
         try:
-            print(f"[EXECUTOR] Initializing browser...")
-            # Initialize browser
-            self._init_browser()
-            print(f"[EXECUTOR] Browser initialized successfully")
-            
+            if has_web_nodes:
+                print(f"[EXECUTOR] Initializing browser (web nodes detected)...")
+                self._init_browser()
+                print(f"[EXECUTOR] Browser initialized successfully")
+            else:
+                print(f"[EXECUTOR] Desktop-only workflow — skipping browser launch")
+
             print(f"[EXECUTOR] Building execution graph...")
             # Build execution graph
             graph = self._build_graph(nodes, edges)
             print(f"[EXECUTOR] Graph built: {len(graph)} nodes")
-            
+
             print(f"[EXECUTOR] Finding entry nodes...")
             # Find entry nodes (nodes with no incoming edges)
             entry_nodes = self._find_entry_nodes(nodes, edges)
             print(f"[EXECUTOR] Entry nodes: {entry_nodes}")
-            
+
             print(f"[EXECUTOR] Starting execution from entry nodes...")
             # Execute workflow starting from entry nodes
             executed_nodes: Set[str] = set()
             self._execute_from_nodes(entry_nodes, nodes, graph, executed_nodes, run_id)
             print(f"[EXECUTOR] Execution completed. Executed {len(executed_nodes)} nodes")
-            
-            print(f"[EXECUTOR] Closing browser...")
-            # Close browser
-            self._close_browser()
-            print(f"[EXECUTOR] Browser closed")
+
+            if has_web_nodes:
+                print(f"[EXECUTOR] Closing browser...")
+                self._close_browser()
+                print(f"[EXECUTOR] Browser closed")
             
             end_time = datetime.utcnow()
             duration = (end_time - start_time).total_seconds()
@@ -118,22 +160,23 @@ class WorkflowExecutorSync:
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
-            
+
             print(f"\n[EXECUTOR ERROR] Exception occurred!")
             print(f"[EXECUTOR ERROR] Error: {str(e)}")
             print(f"[EXECUTOR ERROR] Traceback:\n{error_trace}")
-            
+
             end_time = datetime.utcnow()
             duration = (end_time - start_time).total_seconds()
-            
+
             self._log("ERROR", f"Workflow execution failed: {str(e)}")
             self._log("ERROR", f"Traceback: {error_trace}")
-            
-            # Ensure browser is closed
-            try:
-                self._close_browser()
-            except Exception as close_error:
-                print(f"[EXECUTOR ERROR] Failed to close browser: {close_error}")
+
+            # Only close browser if one was actually opened
+            if has_web_nodes:
+                try:
+                    self._close_browser()
+                except Exception as close_error:
+                    print(f"[EXECUTOR ERROR] Failed to close browser: {close_error}")
             
             return {
                 "status": WorkflowStatus.FAILED.value,
@@ -344,6 +387,40 @@ class WorkflowExecutorSync:
             elif node_type == NodeType.DELAY.value:
                 result = self._execute_delay(config)
 
+            # ── Desktop nodes (PyAutoGUI) ─────────────────────────────────
+            elif node_type == NodeType.DESKTOP_CLICK.value:
+                result = self._execute_desktop_click(config)
+
+            elif node_type == NodeType.DESKTOP_TYPE.value:
+                result = self._execute_desktop_type(config)
+
+            elif node_type == NodeType.DESKTOP_HOTKEY.value:
+                result = self._execute_desktop_hotkey(config)
+
+            elif node_type == NodeType.DESKTOP_MOVE.value:
+                result = self._execute_desktop_move(config)
+
+            elif node_type == NodeType.DESKTOP_DRAG.value:
+                result = self._execute_desktop_drag(config)
+
+            elif node_type == NodeType.DESKTOP_SCROLL.value:
+                result = self._execute_desktop_scroll(config)
+
+            elif node_type == NodeType.DESKTOP_SCREENSHOT.value:
+                result = self._execute_desktop_screenshot(config, node_id, run_id)
+
+            elif node_type == NodeType.DESKTOP_FIND_IMAGE.value:
+                result = self._execute_desktop_find_image(config)
+
+            elif node_type == NodeType.DESKTOP_LAUNCH_APP.value:
+                result = self._execute_desktop_launch_app(config)
+
+            elif node_type == NodeType.DESKTOP_CLOSE_APP.value:
+                result = self._execute_desktop_close_app(config)
+
+            elif node_type == NodeType.DESKTOP_SWITCH_WINDOW.value:
+                result = self._execute_desktop_switch_window(config)
+
             else:
                 self._log("WARNING", f"Unknown node type: {node_type}", node_id,
                           node_type=node_type, node_label=node_label)
@@ -525,27 +602,149 @@ class WorkflowExecutorSync:
         time.sleep(duration / 1000)
         return {"delayed": duration}
     
-    def _capture_screenshot(self, node_id: str, run_id: str):
-        """Capture screenshot"""
-        if not self.page:
-            return
-        
-        # Create screenshots directory
+    def _capture_screenshot(self, node_id: str, run_id: str) -> Optional[str]:
+        """Capture screenshot — uses Playwright page if available, otherwise pyautogui."""
         screenshot_dir = os.path.join(settings.SCREENSHOT_DIR, run_id)
         os.makedirs(screenshot_dir, exist_ok=True)
-        
-        # Generate screenshot path
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         screenshot_path = os.path.join(screenshot_dir, f"{node_id}_{timestamp}.png")
-        
-        # Capture screenshot
-        self.page.screenshot(path=screenshot_path, full_page=True)
-        
+
+        if self.page:
+            self.page.screenshot(path=screenshot_path, full_page=True)
+        elif _PYAUTOGUI_AVAILABLE:
+            _pyautogui.screenshot(screenshot_path)
+        else:
+            return None  # nothing to capture
+
         self.screenshots.append({
             "node_id": node_id,
             "path": screenshot_path,
             "timestamp": datetime.utcnow().isoformat()
         })
+        return screenshot_path.replace("\\", "/")
+
+    # ── Desktop execution helpers ─────────────────────────────────────────────
+
+    def _require_pyautogui(self):
+        if not _PYAUTOGUI_AVAILABLE:
+            raise RuntimeError("pyautogui is not installed. Run: pip install pyautogui")
+
+    def _execute_desktop_click(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        x = config.get("x", 0)
+        y = config.get("y", 0)
+        btn = config.get("button", "left")
+        clicks = config.get("clicks", 1)
+        if clicks == 2:
+            _pyautogui.doubleClick(x, y)
+        else:
+            _pyautogui.click(x, y, button=btn)
+        return {"clicked": f"({x}, {y})", "button": btn, "clicks": clicks}
+
+    def _execute_desktop_type(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        text = config.get("text", "")
+        try:
+            import pyperclip
+            pyperclip.copy(text)
+            _pyautogui.hotkey("ctrl", "v")
+        except ImportError:
+            _pyautogui.typewrite(text, interval=0.05)
+        return {"typed": text}
+
+    def _execute_desktop_hotkey(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        keys_raw = config.get("keys", "")
+        keys = [k.strip() for k in keys_raw.split("+") if k.strip()]
+        _pyautogui.hotkey(*keys)
+        return {"hotkey": keys_raw}
+
+    def _execute_desktop_move(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        x = config.get("x", 0)
+        y = config.get("y", 0)
+        duration = config.get("duration", 0.25)
+        _pyautogui.moveTo(x, y, duration=duration)
+        return {"moved_to": f"({x}, {y})"}
+
+    def _execute_desktop_drag(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        from_x = config.get("from_x", 0)
+        from_y = config.get("from_y", 0)
+        to_x = config.get("to_x", 0)
+        to_y = config.get("to_y", 0)
+        duration = config.get("duration", 0.5)
+        if from_x or from_y:
+            _pyautogui.moveTo(from_x, from_y)
+        _pyautogui.dragTo(to_x, to_y, duration=duration, button="left")
+        return {"dragged_to": f"({to_x}, {to_y})"}
+
+    def _execute_desktop_scroll(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        x = config.get("x", 0)
+        y = config.get("y", 0)
+        dy = config.get("dy", -3)
+        if x or y:
+            _pyautogui.moveTo(x, y)
+        _pyautogui.scroll(dy)
+        return {"scrolled": dy}
+
+    def _execute_desktop_screenshot(self, config: Dict[str, Any], node_id: str, run_id: str) -> Any:
+        self._require_pyautogui()
+        screenshot_dir = os.path.join(settings.SCREENSHOT_DIR, run_id)
+        os.makedirs(screenshot_dir, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        path = config.get("path") or os.path.join(screenshot_dir, f"desktop_{node_id}_{timestamp}.png")
+        _pyautogui.screenshot(path)
+        self.screenshots.append({"node_id": node_id, "path": path, "timestamp": datetime.utcnow().isoformat()})
+        return {"screenshot_path": path}
+
+    def _execute_desktop_find_image(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        image_path = config.get("image_path", "")
+        confidence = config.get("confidence", 0.9)
+        try:
+            location = _pyautogui.locateOnScreen(image_path, confidence=confidence)
+            if location:
+                _pyautogui.click(_pyautogui.center(location))
+                return {"found": True, "location": str(location)}
+            return {"found": False}
+        except Exception as e:
+            return {"found": False, "error": str(e)}
+
+    def _execute_desktop_launch_app(self, config: Dict[str, Any]) -> Any:
+        app_path = config.get("app_path", "")
+        wait_after = config.get("wait_after_ms", 1500)
+        _subprocess.Popen(app_path, shell=True)
+        time.sleep(wait_after / 1000)
+        return {"launched": app_path}
+
+    def _execute_desktop_close_app(self, config: Dict[str, Any]) -> Any:
+        window_title = config.get("window_title", "")
+        try:
+            import win32gui, win32con
+            hwnd = win32gui.FindWindow(None, window_title)
+            if hwnd:
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                return {"closed": window_title}
+        except ImportError:
+            pass
+        self._require_pyautogui()
+        _pyautogui.hotkey("alt", "f4")
+        return {"closed_via": "alt+f4"}
+
+    def _execute_desktop_switch_window(self, config: Dict[str, Any]) -> Any:
+        window_title = config.get("window_title", "")
+        try:
+            import win32gui, win32con
+            hwnd = win32gui.FindWindow(None, window_title)
+            if hwnd:
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                win32gui.SetForegroundWindow(hwnd)
+                return {"focused": window_title}
+        except ImportError:
+            pass
+        return {"focused": None, "error": "pywin32 not available"}
     
     def _log(self, level: str, message: str, node_id: str = None, **kwargs):
         """Add log entry"""

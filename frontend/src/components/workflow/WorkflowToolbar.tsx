@@ -30,6 +30,8 @@ export const SPEED_DELAY_MS: Record<ReplaySpeed, number> = {
   instant:   0,
 };
 
+export type RecordingMode = 'web' | 'desktop' | 'hybrid';
+
 interface WorkflowToolbarProps {
   workflowName: string;
   onRenameWorkflow: (name: string) => void;
@@ -59,6 +61,8 @@ interface WorkflowToolbarProps {
   onImportScript: () => void;
   replaySpeed: ReplaySpeed;
   onReplaySpeedChange: (speed: ReplaySpeed) => void;
+  recordingMode: RecordingMode;
+  onRecordingModeChange: (mode: RecordingMode) => void;
 }
 
 const Sep = () => (
@@ -94,6 +98,7 @@ const WorkflowToolbar = ({
   onZoomIn, onZoomOut, onFitView, onAutoLayout, onSaveAsBlock, onSaveSelectionAsBlock,
   selectedNodeCount, onImportBlock, onViewCode, onImportScript,
   replaySpeed, onReplaySpeedChange,
+  recordingMode, onRecordingModeChange,
 }: WorkflowToolbarProps) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -245,9 +250,36 @@ const WorkflowToolbar = ({
 
       <Sep />
 
+      {/* Recording Mode selector */}
+      <Select
+        value={recordingMode}
+        onChange={(e) => onRecordingModeChange(e.target.value as RecordingMode)}
+        disabled={isRecording}
+        size="small"
+        variant="outlined"
+        sx={{
+          height: 30,
+          fontSize: '0.75rem',
+          color: recordingMode === 'desktop' ? '#F59E0B'
+                : recordingMode === 'hybrid'  ? '#A78BFA' : '#A0A0B4',
+          backgroundColor: '#1a1a1a',
+          '& .MuiOutlinedInput-notchedOutline': {
+            borderColor: recordingMode === 'desktop' ? 'rgba(245,158,11,0.35)'
+                        : recordingMode === 'hybrid'  ? 'rgba(167,139,250,0.35)' : '#2a2a2a',
+          },
+          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#3a3a3a' },
+          '& .MuiSvgIcon-root': { color: '#555' },
+          '& .MuiSelect-select': { py: '5px', pl: 1 },
+        }}
+      >
+        <MenuItem value="web"     sx={{ fontSize: '0.78rem' }}>🌐 Web</MenuItem>
+        <MenuItem value="desktop" sx={{ fontSize: '0.78rem' }}>🖥 Desktop</MenuItem>
+        <MenuItem value="hybrid"  sx={{ fontSize: '0.78rem' }}>⚡ Hybrid</MenuItem>
+      </Select>
+
       {/* Record */}
       {!isRecording ? (
-        <Tooltip title="Start Recording">
+        <Tooltip title={`Start ${recordingMode === 'web' ? 'Web' : recordingMode === 'desktop' ? 'Desktop' : 'Hybrid'} Recording`}>
           <Button
             variant="contained"
             color="error"
@@ -256,15 +288,20 @@ const WorkflowToolbar = ({
             size="small"
             sx={{
               height: 30, px: 1.5, fontSize: '0.78rem',
-              background: 'rgba(245,101,101,0.15)',
-              color: '#F56565',
-              border: '1px solid rgba(245,101,101,0.3)',
+              background: recordingMode === 'desktop'
+                ? 'rgba(245,158,11,0.15)'
+                : recordingMode === 'hybrid'
+                ? 'rgba(167,139,250,0.15)'
+                : 'rgba(245,101,101,0.15)',
+              color: recordingMode === 'desktop' ? '#F59E0B'
+                   : recordingMode === 'hybrid'  ? '#A78BFA' : '#F56565',
+              border: `1px solid ${recordingMode === 'desktop'
+                ? 'rgba(245,158,11,0.3)'
+                : recordingMode === 'hybrid'
+                ? 'rgba(167,139,250,0.3)'
+                : 'rgba(245,101,101,0.3)'}`,
               boxShadow: 'none',
-              '&:hover': {
-                background: 'rgba(245,101,101,0.25)',
-                boxShadow: 'none',
-                transform: 'none',
-              },
+              '&:hover': { background: 'rgba(245,101,101,0.25)', boxShadow: 'none', transform: 'none' },
             }}
           >
             Record

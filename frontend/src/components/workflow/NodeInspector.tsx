@@ -44,7 +44,25 @@ const nodeColors: Record<string, string> = {
   API_REQUEST: '#F472B6',
   BLOCK: '#94A3B8',
   UPLOAD_FILE: '#FB923C',
+  // Desktop
+  DESKTOP_CLICK: '#F59E0B',
+  DESKTOP_TYPE: '#FBBF24',
+  DESKTOP_HOTKEY: '#D97706',
+  DESKTOP_MOVE: '#92400E',
+  DESKTOP_DRAG: '#B45309',
+  DESKTOP_SCROLL: '#78350F',
+  DESKTOP_SCREENSHOT: '#10B981',
+  DESKTOP_FIND_IMAGE: '#059669',
+  DESKTOP_LAUNCH_APP: '#6366F1',
+  DESKTOP_CLOSE_APP: '#EF4444',
+  DESKTOP_SWITCH_WINDOW: '#8B5CF6',
 };
+
+const DESKTOP_NODE_TYPES = [
+  'DESKTOP_CLICK', 'DESKTOP_TYPE', 'DESKTOP_HOTKEY', 'DESKTOP_MOVE',
+  'DESKTOP_DRAG', 'DESKTOP_SCROLL', 'DESKTOP_SCREENSHOT', 'DESKTOP_FIND_IMAGE',
+  'DESKTOP_LAUNCH_APP', 'DESKTOP_CLOSE_APP', 'DESKTOP_SWITCH_WINDOW',
+];
 
 const FieldRow = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <Box sx={{ mb: 2 }}>
@@ -81,7 +99,16 @@ const NodeInspector = () => {
   // Keep a ref to always read the latest store state inside callbacks
   const storeRef = useWorkflowStore;
 
-  const [localData, setLocalData] = useState<any>({});
+  const [localData, setLocalData] = useState<any>({
+    // desktop fields
+    x: 0, y: 0, button: 'left', clicks: 1,
+    text: '', keys: '',
+    from_x: 0, from_y: 0, to_x: 0, to_y: 0,
+    dy: -3, direction: 'down',
+    image_path: '', confidence: 0.9,
+    app_path: '', window_title: '',
+    path: '',
+  });
   const [collapsed, setCollapsed] = useState(false);
   const [availableBlocks, setAvailableBlocks] = useState<BlockSummary[]>([]);
   const [blocksLoading, setBlocksLoading] = useState(false);
@@ -104,6 +131,24 @@ const NodeInspector = () => {
         screenshot:      selectedNode.data.config?.screenshot || false,
         description:     selectedNode.data.config?.description || '',
         block_id:        selectedNode.data.config?.block_id ?? '',
+        // desktop-specific
+        x:               selectedNode.data.config?.x ?? 0,
+        y:               selectedNode.data.config?.y ?? 0,
+        button:          selectedNode.data.config?.button ?? 'left',
+        clicks:          selectedNode.data.config?.clicks ?? 1,
+        text:            selectedNode.data.config?.text ?? '',
+        keys:            selectedNode.data.config?.keys ?? '',
+        from_x:          selectedNode.data.config?.from_x ?? 0,
+        from_y:          selectedNode.data.config?.from_y ?? 0,
+        to_x:            selectedNode.data.config?.to_x ?? 0,
+        to_y:            selectedNode.data.config?.to_y ?? 0,
+        dy:              selectedNode.data.config?.dy ?? -3,
+        direction:       selectedNode.data.config?.direction ?? 'down',
+        image_path:      selectedNode.data.config?.image_path ?? '',
+        confidence:      selectedNode.data.config?.confidence ?? 0.9,
+        app_path:        selectedNode.data.config?.app_path ?? '',
+        window_title:    selectedNode.data.config?.window_title ?? '',
+        path:            selectedNode.data.config?.path ?? '',
       });
     }
   }, [selectedNode?.id]);
@@ -169,15 +214,33 @@ const NodeInspector = () => {
   const generateCode = () => {
     if (!selectedNode) return '';
     const { nodeType } = selectedNode.data;
-    const { selector, value, url, duration } = localData;
+    const { selector, value, url, duration, x, y, button, clicks, text, keys,
+            to_x, to_y, dy, image_path, app_path, window_title, path } = localData;
     switch (nodeType) {
+      // Web
       case 'CLICK':       return `await page.click('${selector}');`;
       case 'TYPE':        return `await page.fill('${selector}', '${value}');`;
       case 'OPEN_URL':    return `await page.goto('${url}');`;
       case 'SELECT':      return `await page.selectOption('${selector}', '${value}');`;
       case 'HOVER':       return `await page.hover('${selector}');`;
       case 'DELAY':       return `await page.waitForTimeout(${duration});`;
-      default:            return `// ${nodeType} action`;
+      // Desktop
+      case 'DESKTOP_CLICK':
+        return clicks === 2
+          ? `pyautogui.doubleClick(${x}, ${y})`
+          : `pyautogui.click(${x}, ${y}${button !== 'left' ? `, button='${button}'` : ''})`;
+      case 'DESKTOP_TYPE':   return `pyautogui.typewrite('${text}', interval=0.05)`;
+      case 'DESKTOP_HOTKEY':
+        return `pyautogui.hotkey(${keys.split('+').map((k: string) => `'${k.trim()}'`).join(', ')})`;
+      case 'DESKTOP_MOVE':   return `pyautogui.moveTo(${x}, ${y}, duration=0.25)`;
+      case 'DESKTOP_DRAG':   return `pyautogui.dragTo(${to_x}, ${to_y}, duration=0.5, button='left')`;
+      case 'DESKTOP_SCROLL': return `pyautogui.scroll(${dy})`;
+      case 'DESKTOP_SCREENSHOT': return `pyautogui.screenshot('${path || 'screenshot.png'}')`;
+      case 'DESKTOP_FIND_IMAGE': return `loc = pyautogui.locateOnScreen('${image_path}', confidence=0.9)\nif loc: pyautogui.click(pyautogui.center(loc))`;
+      case 'DESKTOP_LAUNCH_APP': return `subprocess.Popen(r'${app_path}')`;
+      case 'DESKTOP_CLOSE_APP':  return `pyautogui.hotkey('alt', 'f4')  # or win32gui.FindWindow`;
+      case 'DESKTOP_SWITCH_WINDOW': return `win32gui.SetForegroundWindow(win32gui.FindWindow(None, '${window_title}'))`;
+      default:            return `# ${nodeType}`;
     }
   };
 
@@ -338,7 +401,12 @@ const NodeInspector = () => {
                     '& .MuiSvgIcon-root': { color: '#666' },
                   }}
                 >
-                  {['CLICK','TYPE','SELECT','HOVER','UPLOAD_FILE','OPEN_URL','DELAY','BLOCK'].map((t) => (
+                  {[
+                    // Web
+                    'CLICK','TYPE','SELECT','HOVER','UPLOAD_FILE','OPEN_URL','DELAY','BLOCK',
+                    // Desktop
+                    ...DESKTOP_NODE_TYPES,
+                  ].map((t) => (
                     <MenuItem key={t} value={t} sx={{ fontSize: '0.83rem' }}>{t}</MenuItem>
                   ))}
                 </Select>
@@ -457,7 +525,7 @@ const NodeInspector = () => {
               </>
             )}
 
-            {/* ── Regular node fields ── */}
+            {/* ── Web node fields ── */}
             {/* Selector */}
             {['CLICK','TYPE','SELECT','HOVER','UPLOAD_FILE'].includes(selectedNode.data.nodeType) && (
               <FieldRow label="CSS Selector">
@@ -499,10 +567,162 @@ const NodeInspector = () => {
               </FieldRow>
             )}
 
-            {/* Timeout — not shown for BLOCK or DELAY nodes */}
-            {!['DELAY', 'BLOCK'].includes(selectedNode.data.nodeType) && (
+            {/* Timeout — not shown for BLOCK, DELAY, or desktop nodes */}
+            {!['DELAY', 'BLOCK', ...DESKTOP_NODE_TYPES].includes(selectedNode.data.nodeType) && (
               <FieldRow label="Timeout (ms)">
                 <TextField fullWidth size="small" type="number" value={localData.timeout} onChange={(e) => handleUpdate('timeout', parseInt(e.target.value))} sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* ── Desktop node fields ── */}
+            {/* X / Y coordinates */}
+            {['DESKTOP_CLICK','DESKTOP_MOVE','DESKTOP_SCROLL'].includes(selectedNode.data.nodeType) && (
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <FieldRow label="X">
+                  <TextField fullWidth size="small" type="number" value={localData.x}
+                    onChange={(e) => handleUpdate('x', parseInt(e.target.value) || 0)} sx={inputSx} />
+                </FieldRow>
+                <FieldRow label="Y">
+                  <TextField fullWidth size="small" type="number" value={localData.y}
+                    onChange={(e) => handleUpdate('y', parseInt(e.target.value) || 0)} sx={inputSx} />
+                </FieldRow>
+              </Box>
+            )}
+
+            {/* Click button + clicks */}
+            {selectedNode.data.nodeType === 'DESKTOP_CLICK' && (
+              <>
+                <FieldRow label="Button">
+                  <FormControl fullWidth size="small">
+                    <Select value={localData.button} onChange={(e) => handleUpdate('button', e.target.value)}
+                      sx={{ backgroundColor: '#1a1a1a', color: '#E0E0E0', fontSize: '0.83rem',
+                        '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2a2a2a' },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#F59E0B', borderWidth: 1.5 },
+                        '& .MuiSvgIcon-root': { color: '#666' } }}>
+                      <MenuItem value="left"   sx={{ fontSize: '0.83rem' }}>Left</MenuItem>
+                      <MenuItem value="right"  sx={{ fontSize: '0.83rem' }}>Right</MenuItem>
+                      <MenuItem value="middle" sx={{ fontSize: '0.83rem' }}>Middle</MenuItem>
+                    </Select>
+                  </FormControl>
+                </FieldRow>
+                <FieldRow label="Clicks">
+                  <FormControl fullWidth size="small">
+                    <Select value={localData.clicks} onChange={(e) => handleUpdate('clicks', Number(e.target.value))}
+                      sx={{ backgroundColor: '#1a1a1a', color: '#E0E0E0', fontSize: '0.83rem',
+                        '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2a2a2a' },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#F59E0B', borderWidth: 1.5 },
+                        '& .MuiSvgIcon-root': { color: '#666' } }}>
+                      <MenuItem value={1} sx={{ fontSize: '0.83rem' }}>Single</MenuItem>
+                      <MenuItem value={2} sx={{ fontSize: '0.83rem' }}>Double</MenuItem>
+                    </Select>
+                  </FormControl>
+                </FieldRow>
+              </>
+            )}
+
+            {/* Text to type */}
+            {selectedNode.data.nodeType === 'DESKTOP_TYPE' && (
+              <FieldRow label="Text">
+                <TextField fullWidth size="small" multiline rows={3} value={localData.text}
+                  onChange={(e) => handleUpdate('text', e.target.value)}
+                  placeholder="Hello World"
+                  sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* Hotkey */}
+            {selectedNode.data.nodeType === 'DESKTOP_HOTKEY' && (
+              <FieldRow label="Key Combination">
+                <TextField fullWidth size="small" value={localData.keys}
+                  onChange={(e) => handleUpdate('keys', e.target.value)}
+                  placeholder="ctrl+c  or  alt+f4  or  enter"
+                  helperText="Separate keys with +"
+                  sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* Drag: from/to */}
+            {selectedNode.data.nodeType === 'DESKTOP_DRAG' && (
+              <>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <FieldRow label="From X">
+                    <TextField fullWidth size="small" type="number" value={localData.from_x}
+                      onChange={(e) => handleUpdate('from_x', parseInt(e.target.value) || 0)} sx={inputSx} />
+                  </FieldRow>
+                  <FieldRow label="From Y">
+                    <TextField fullWidth size="small" type="number" value={localData.from_y}
+                      onChange={(e) => handleUpdate('from_y', parseInt(e.target.value) || 0)} sx={inputSx} />
+                  </FieldRow>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <FieldRow label="To X">
+                    <TextField fullWidth size="small" type="number" value={localData.to_x}
+                      onChange={(e) => handleUpdate('to_x', parseInt(e.target.value) || 0)} sx={inputSx} />
+                  </FieldRow>
+                  <FieldRow label="To Y">
+                    <TextField fullWidth size="small" type="number" value={localData.to_y}
+                      onChange={(e) => handleUpdate('to_y', parseInt(e.target.value) || 0)} sx={inputSx} />
+                  </FieldRow>
+                </Box>
+              </>
+            )}
+
+            {/* Scroll amount */}
+            {selectedNode.data.nodeType === 'DESKTOP_SCROLL' && (
+              <FieldRow label="Scroll Amount (negative = down)">
+                <TextField fullWidth size="small" type="number" value={localData.dy}
+                  onChange={(e) => handleUpdate('dy', parseInt(e.target.value) || 0)}
+                  inputProps={{ step: 1 }}
+                  helperText="-3 = down 3 clicks, +3 = up 3 clicks"
+                  sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* Screenshot path */}
+            {selectedNode.data.nodeType === 'DESKTOP_SCREENSHOT' && (
+              <FieldRow label="Save Path">
+                <TextField fullWidth size="small" value={localData.path}
+                  onChange={(e) => handleUpdate('path', e.target.value)}
+                  placeholder="screenshot.png"
+                  sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* Find image */}
+            {selectedNode.data.nodeType === 'DESKTOP_FIND_IMAGE' && (
+              <>
+                <FieldRow label="Image File Path">
+                  <TextField fullWidth size="small" value={localData.image_path}
+                    onChange={(e) => handleUpdate('image_path', e.target.value)}
+                    placeholder="C:/images/button.png"
+                    sx={inputSx} />
+                </FieldRow>
+                <FieldRow label="Confidence (0–1)">
+                  <TextField fullWidth size="small" type="number" value={localData.confidence}
+                    onChange={(e) => handleUpdate('confidence', parseFloat(e.target.value) || 0.9)}
+                    inputProps={{ min: 0.5, max: 1, step: 0.05 }}
+                    sx={inputSx} />
+                </FieldRow>
+              </>
+            )}
+
+            {/* Launch app */}
+            {selectedNode.data.nodeType === 'DESKTOP_LAUNCH_APP' && (
+              <FieldRow label="Application Path">
+                <TextField fullWidth size="small" value={localData.app_path}
+                  onChange={(e) => handleUpdate('app_path', e.target.value)}
+                  placeholder="C:/Windows/notepad.exe  or  notepad"
+                  sx={inputSx} />
+              </FieldRow>
+            )}
+
+            {/* Close / switch window */}
+            {['DESKTOP_CLOSE_APP','DESKTOP_SWITCH_WINDOW'].includes(selectedNode.data.nodeType) && (
+              <FieldRow label="Window Title">
+                <TextField fullWidth size="small" value={localData.window_title}
+                  onChange={(e) => handleUpdate('window_title', e.target.value)}
+                  placeholder="Notepad — exact window title"
+                  sx={inputSx} />
               </FieldRow>
             )}
 

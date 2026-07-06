@@ -1,5 +1,6 @@
 """
-Enhanced Workflow Execution Engine with Branching, Loops, and Parallel Execution
+Enhanced Workflow Execution Engine with Branching, Loops, and Parallel Execution.
+Supports both Web (Playwright) and Desktop (PyAutoGUI) node types for hybrid automation.
 """
 import asyncio
 import re
@@ -13,6 +14,19 @@ import time
 from app.core.config import settings
 from app.db.models import NodeType, WorkflowStatus
 from app.services.self_healing import AsyncSelfHealingLocator
+
+# ── Optional PyAutoGUI import (desktop execution) ────────────────────────────
+_PYAUTOGUI_AVAILABLE = False
+try:
+    import pyautogui as _pyautogui
+    _pyautogui.FAILSAFE = True
+    _pyautogui.PAUSE = 0.05
+    _PYAUTOGUI_AVAILABLE = True
+except ImportError:
+    pass
+
+_SUBPROCESS_AVAILABLE = True
+import subprocess as _subprocess
 
 
 def _resolve_single_locator(page, selector: str):
@@ -519,6 +533,40 @@ class WorkflowExecutor:
             elif node_type == NodeType.LOOP.value:
                 result = {"loop_node": True}
 
+            # ── Desktop nodes (PyAutoGUI) ─────────────────────────────────────
+            elif node_type == NodeType.DESKTOP_CLICK.value:
+                result = await self._execute_desktop_click(config)
+
+            elif node_type == NodeType.DESKTOP_TYPE.value:
+                result = await self._execute_desktop_type(config)
+
+            elif node_type == NodeType.DESKTOP_HOTKEY.value:
+                result = await self._execute_desktop_hotkey(config)
+
+            elif node_type == NodeType.DESKTOP_MOVE.value:
+                result = await self._execute_desktop_move(config)
+
+            elif node_type == NodeType.DESKTOP_DRAG.value:
+                result = await self._execute_desktop_drag(config)
+
+            elif node_type == NodeType.DESKTOP_SCROLL.value:
+                result = await self._execute_desktop_scroll(config)
+
+            elif node_type == NodeType.DESKTOP_SCREENSHOT.value:
+                result = await self._execute_desktop_screenshot(config, node_id, run_id)
+
+            elif node_type == NodeType.DESKTOP_FIND_IMAGE.value:
+                result = await self._execute_desktop_find_image(config)
+
+            elif node_type == NodeType.DESKTOP_LAUNCH_APP.value:
+                result = await self._execute_desktop_launch_app(config)
+
+            elif node_type == NodeType.DESKTOP_CLOSE_APP.value:
+                result = await self._execute_desktop_close_app(config)
+
+            elif node_type == NodeType.DESKTOP_SWITCH_WINDOW.value:
+                result = await self._execute_desktop_switch_window(config)
+
             else:
                 self._log("WARNING", f"Unknown node type: {node_type}", node_id,
                           node_type=node_type, node_label=node_label)
@@ -714,5 +762,152 @@ class WorkflowExecutor:
         }
         entry.update(kwargs)
         self.logs.append(entry)
+
+    # ── Desktop execution helpers (run in executor to avoid blocking event loop) ──
+
+    def _require_pyautogui(self):
+        if not _PYAUTOGUI_AVAILABLE:
+            raise RuntimeError(
+                "pyautogui is not installed. Run: pip install pyautogui"
+            )
+
+    async def _execute_desktop_click(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        x = config.get("x", 0)
+        y = config.get("y", 0)
+        btn = config.get("button", "left")
+        clicks = config.get("clicks", 1)
+        loop = asyncio.get_event_loop()
+        if clicks == 2:
+            await loop.run_in_executor(None, lambda: _pyautogui.doubleClick(x, y))
+        else:
+            await loop.run_in_executor(None, lambda: _pyautogui.click(x, y, button=btn))
+        return {"clicked": f"({x}, {y})", "button": btn, "clicks": clicks}
+
+    async def _execute_desktop_type(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        text = config.get("text", "")
+        loop = asyncio.get_event_loop()
+        # typewrite handles printable chars; for arbitrary unicode use pyperclip+hotkey
+        try:
+            import pyperclip
+            pyperclip.copy(text)
+            await loop.run_in_executor(None, lambda: _pyautogui.hotkey("ctrl", "v"))
+        except ImportError:
+            await loop.run_in_executor(None, lambda: _pyautogui.typewrite(text, interval=0.05))
+        return {"typed": text}
+
+    async def _execute_desktop_hotkey(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        keys_raw = config.get("keys", "")
+        keys = [k.strip() for k in keys_raw.split("+") if k.strip()]
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: _pyautogui.hotkey(*keys))
+        return {"hotkey": keys_raw}
+
+    async def _execute_desktop_move(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        x = config.get("x", 0)
+        y = config.get("y", 0)
+        duration = config.get("duration", 0.25)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: _pyautogui.moveTo(x, y, duration=duration))
+        return {"moved_to": f"({x}, {y})"}
+
+    async def _execute_desktop_drag(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        from_x = config.get("from_x", 0)
+        from_y = config.get("from_y", 0)
+        to_x = config.get("to_x", 0)
+        to_y = config.get("to_y", 0)
+        duration = config.get("duration", 0.5)
+        loop = asyncio.get_event_loop()
+        if from_x or from_y:
+            await loop.run_in_executor(None, lambda: _pyautogui.moveTo(from_x, from_y))
+        await loop.run_in_executor(
+            None, lambda: _pyautogui.dragTo(to_x, to_y, duration=duration, button="left")
+        )
+        return {"dragged_to": f"({to_x}, {to_y})"}
+
+    async def _execute_desktop_scroll(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        x = config.get("x", 0)
+        y = config.get("y", 0)
+        dy = config.get("dy", -3)
+        loop = asyncio.get_event_loop()
+        if x or y:
+            await loop.run_in_executor(None, lambda: _pyautogui.moveTo(x, y))
+        await loop.run_in_executor(None, lambda: _pyautogui.scroll(dy))
+        return {"scrolled": dy}
+
+    async def _execute_desktop_screenshot(
+        self, config: Dict[str, Any], node_id: str, run_id: str
+    ) -> Any:
+        self._require_pyautogui()
+        screenshot_dir = os.path.join(settings.SCREENSHOT_DIR, run_id)
+        os.makedirs(screenshot_dir, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        path = config.get("path") or os.path.join(screenshot_dir, f"desktop_{node_id}_{timestamp}.png")
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: _pyautogui.screenshot(path))
+        self.screenshots.append({"node_id": node_id, "path": path, "timestamp": datetime.utcnow().isoformat()})
+        return {"screenshot_path": path}
+
+    async def _execute_desktop_find_image(self, config: Dict[str, Any]) -> Any:
+        self._require_pyautogui()
+        image_path = config.get("image_path", "")
+        confidence = config.get("confidence", 0.9)
+        loop = asyncio.get_event_loop()
+        try:
+            location = await loop.run_in_executor(
+                None, lambda: _pyautogui.locateOnScreen(image_path, confidence=confidence)
+            )
+            if location:
+                center = _pyautogui.center(location)
+                await loop.run_in_executor(None, lambda: _pyautogui.click(center))
+                return {"found": True, "location": str(location)}
+            return {"found": False}
+        except Exception as e:
+            return {"found": False, "error": str(e)}
+
+    async def _execute_desktop_launch_app(self, config: Dict[str, Any]) -> Any:
+        app_path = config.get("app_path", "")
+        wait_after = config.get("wait_after_ms", 1500)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: _subprocess.Popen(app_path, shell=True))
+        await asyncio.sleep(wait_after / 1000)
+        return {"launched": app_path}
+
+    async def _execute_desktop_close_app(self, config: Dict[str, Any]) -> Any:
+        window_title = config.get("window_title", "")
+        loop = asyncio.get_event_loop()
+        try:
+            import win32gui
+            import win32con
+            hwnd = await loop.run_in_executor(None, lambda: win32gui.FindWindow(None, window_title))
+            if hwnd:
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                return {"closed": window_title}
+        except ImportError:
+            pass
+        # Fallback: Alt+F4
+        self._require_pyautogui()
+        await loop.run_in_executor(None, lambda: _pyautogui.hotkey("alt", "f4"))
+        return {"closed_via": "alt+f4"}
+
+    async def _execute_desktop_switch_window(self, config: Dict[str, Any]) -> Any:
+        window_title = config.get("window_title", "")
+        loop = asyncio.get_event_loop()
+        try:
+            import win32gui
+            hwnd = await loop.run_in_executor(None, lambda: win32gui.FindWindow(None, window_title))
+            if hwnd:
+                import win32con
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                win32gui.SetForegroundWindow(hwnd)
+                return {"focused": window_title}
+        except ImportError:
+            pass
+        return {"focused": None, "error": "pywin32 not available"}
 
 # Made with Bob

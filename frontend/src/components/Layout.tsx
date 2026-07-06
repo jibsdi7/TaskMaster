@@ -93,7 +93,7 @@ const Layout = () => {
             >
               <img
                 src="/logo.svg"
-                alt="FlowWeaver"
+                alt="TaskMaster"
                 style={{ width: 38, height: 38, borderRadius: 11, display: 'block' }}
               />
             </Box>

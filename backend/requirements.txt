@@ -21,8 +21,14 @@ bcrypt==4.0.1
 python-multipart==0.0.6
 email-validator==2.3.0
 
-# Playwright
-playwright==1.41.0
+# Playwright (Web Automation)
+playwright>=1.41.0
+
+# Desktop Automation
+pyautogui==0.9.54
+pynput==1.8.2
+pyperclip==1.9.0
+# pywin32==306  # Windows only — uncomment for window management (DESKTOP_CLOSE_APP / DESKTOP_SWITCH_WINDOW)
 
 # HTTP Client
 httpx==0.26.0
@@ -41,6 +47,6 @@ pytest-cov==4.1.0
 httpx==0.26.0
 
 # Development
-black==23.12.1
-flake8==7.0.0
-mypy==1.8.0
+black>=23.12.1
+flake8>=7.0.0
+mypy>=1.8.0

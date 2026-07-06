@@ -1,5 +1,5 @@
 """
-FlowWeaver - Main FastAPI Application
+TaskMaster - Main FastAPI Application
 """
 import sys
 import asyncio
@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from app.api.workflows import router as workflows_router
 from app.api.recorder import router as recorder_router
+from app.api.desktop_recorder import router as desktop_recorder_router
 from app.api.blocks import router as blocks_router
 from app.api.auth import router as auth_router
 from app.api.executions import router as executions_router
@@ -72,7 +73,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="FlowWeaver API",
+    title="TaskMaster API",
     description="Visual workflow automation platform",
     version="1.0.0",
     lifespan=lifespan
@@ -92,6 +93,7 @@ app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(projects_router, prefix="/api/projects", tags=["Projects"])
 app.include_router(workflows_router, prefix="/api/workflows", tags=["Workflows"])
 app.include_router(recorder_router, prefix="/api/recorder", tags=["Recorder"])
+app.include_router(desktop_recorder_router, prefix="/api/desktop-recorder", tags=["Desktop Recorder"])
 app.include_router(blocks_router, prefix="/api/blocks", tags=["Blocks"])
 app.include_router(executions_router, prefix="/api/executions", tags=["Executions"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
