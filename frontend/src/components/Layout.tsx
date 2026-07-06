@@ -71,15 +71,16 @@ const Layout = () => {
             <Box
               onClick={() => navigate('/dashboard')}
               sx={{
-                width: 38,
-                height: 38,
-                borderRadius: '11px',
+                width: 28,
+                height: 28,
+                borderRadius: '7px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 mb: 2,
                 cursor: 'pointer',
                 flexShrink: 0,
+                overflow: 'hidden',
                 transition: 'transform 0.15s ease, box-shadow 0.15s ease',
                 outline: location.pathname.startsWith('/dashboard')
                   ? '2px solid rgba(91,124,246,0.6)'
@@ -92,9 +93,9 @@ const Layout = () => {
               }}
             >
               <img
-                src="/logo.svg"
+                src="/logo.png"
                 alt="FlowWeaver"
-                style={{ width: 38, height: 38, borderRadius: 11, display: 'block' }}
+                style={{ width: 28, height: 28, display: 'block', objectFit: 'contain' }}
               />
             </Box>
           </Tooltip>
