@@ -85,6 +85,9 @@ const WorkflowEditor = () => {
   // Replay speed state
   const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>('normal');
 
+  // Recording mode: 'web' | 'desktop' | 'hybrid'
+  const [recordingMode, setRecordingMode] = useState<'web' | 'desktop' | 'hybrid'>('web');
+
   // State for Import Script dialog
   const [importScriptOpen, setImportScriptOpen] = useState(false);
   const [importScriptText, setImportScriptText] = useState('');
@@ -102,7 +105,7 @@ const WorkflowEditor = () => {
 
   // State for code viewer dialog
   const [codeDialogOpen, setCodeDialogOpen] = useState(false);
-  const [codeLanguage, setCodeLanguage] = useState<'python' | 'javascript' | 'typescript'>('python');
+  const [codeLanguage, setCodeLanguage] = useState<'python' | 'javascript' | 'typescript' | 'desktop' | 'hybrid'>('python');
   const [generatedCode, setGeneratedCode] = useState('');
   const [codeLoading, setCodeLoading] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
@@ -329,70 +332,93 @@ const WorkflowEditor = () => {
 
   const handleRecord = async () => {
     try {
-      const url = prompt('Enter URL to record:');
-      if (!url) return;
-
-      console.log('Starting recording with URL:', url);
-
-      const response = await axios.post(
-        `${BASE_URL}/api/recorder/start`,
-        { url },
-        { headers: authHeaders() }
-      );
-
-      console.log('Recording started:', response.data);
-
-      setIsRecording(true);
-      setStatus('recording');
-      toast.success('Recording started. Perform actions in the browser.');
+      if (recordingMode === 'desktop' || recordingMode === 'hybrid') {
+        // ── Desktop / Hybrid recording (pynput) ──────────────────────────
+        const response = await axios.post(
+          `${BASE_URL}/api/desktop-recorder/start`,
+          { session_name: `desktop_${Date.now()}` },
+          { headers: authHeaders() }
+        );
+        setIsRecording(true);
+        setStatus('recording');
+        toast.success(`Desktop recording started (${recordingMode} mode). Perform actions on your desktop.`);
+        console.log('Desktop recording started:', response.data);
+      } else {
+        // ── Web recording (Playwright codegen) ───────────────────────────
+        const url = prompt('Enter URL to record:');
+        if (!url) return;
+        const response = await axios.post(
+          `${BASE_URL}/api/recorder/start`,
+          { url },
+          { headers: authHeaders() }
+        );
+        setIsRecording(true);
+        setStatus('recording');
+        toast.success('Web recording started. Perform actions in the browser.');
+        console.log('Web recording started:', response.data);
+      }
     } catch (error: any) {
       console.error('Failed to start recording:', error);
-      console.error('Error details:', error.response?.data);
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to start recording';
-      toast.error(errorMessage);
+      toast.error(error.response?.data?.detail || error.message || 'Failed to start recording');
     }
   };
 
   const handleStopRecording = async () => {
     try {
-      // Ask user if they want to save as workflow
       const saveAsWorkflow = window.confirm('Save recording as a workflow?');
-      
-      // Prepare query parameters based on whether we're saving as workflow
-      let params: any = {};
-      
+      let workflowNameInput = '';
       if (saveAsWorkflow) {
-        const workflowNameInput = prompt('Enter workflow name:');
-        if (!workflowNameInput || !workflowNameInput.trim()) {
-          toast.error('Workflow name is required to save');
-          return;
-        }
-        
-        params = {
-          save_as_workflow: true,
-          workflow_name: workflowNameInput.trim(),
-          // omit project_id → backend auto-creates "Default Project"
-        };
+        const name = prompt('Enter workflow name:');
+        if (!name?.trim()) { toast.error('Workflow name is required to save'); return; }
+        workflowNameInput = name.trim();
       }
-      
-      const response = await axios.post(
-        `${BASE_URL}/api/recorder/stop`,
-        {},
-        { headers: authHeaders(), params: params }
-      );
 
-      setIsRecording(false);
-      setStatus('idle');
-      
-      // Check if workflow was created
-      if (response.data.workflow_id) {
-        toast.success(`Recording saved as workflow! ${response.data.actions_count} actions captured.`);
-        // Navigate to the created workflow
-        navigate(`/workflows/${response.data.workflow_id}`);
-      } else if (response.data.actions && response.data.actions.length > 0) {
-        toast.success(`Recording stopped. ${response.data.actions_count} actions captured.`);
+      if (recordingMode === 'desktop' || recordingMode === 'hybrid') {
+        // ── Stop desktop recording ────────────────────────────────────────
+        if (saveAsWorkflow && workflowNameInput) {
+          const response = await axios.post(
+            `${BASE_URL}/api/desktop-recorder/stop-and-save`,
+            { workflow_name: workflowNameInput, recording_mode: recordingMode },
+            { headers: authHeaders() }
+          );
+          setIsRecording(false);
+          setStatus('idle');
+          if (response.data.workflow_id) {
+            toast.success(`Desktop recording saved! ${response.data.nodes_count} actions captured.`);
+            navigate(`/workflows/${response.data.workflow_id}`);
+          } else {
+            toast.info('Desktop recording stopped. No actions captured.');
+          }
+        } else {
+          const response = await axios.post(
+            `${BASE_URL}/api/desktop-recorder/stop`,
+            {},
+            { headers: authHeaders() }
+          );
+          setIsRecording(false);
+          setStatus('idle');
+          toast.success(`Desktop recording stopped. ${response.data.actions_count} actions captured.`);
+        }
       } else {
-        toast.info('Recording stopped. No actions captured.');
+        // ── Stop web recording ────────────────────────────────────────────
+        const params: any = saveAsWorkflow && workflowNameInput
+          ? { save_as_workflow: true, workflow_name: workflowNameInput }
+          : {};
+        const response = await axios.post(
+          `${BASE_URL}/api/recorder/stop`,
+          {},
+          { headers: authHeaders(), params }
+        );
+        setIsRecording(false);
+        setStatus('idle');
+        if (response.data.workflow_id) {
+          toast.success(`Web recording saved! ${response.data.actions_count} actions captured.`);
+          navigate(`/workflows/${response.data.workflow_id}`);
+        } else if (response.data.actions_count > 0) {
+          toast.success(`Recording stopped. ${response.data.actions_count} actions captured.`);
+        } else {
+          toast.info('Recording stopped. No actions captured.');
+        }
       }
     } catch (error: any) {
       console.error('Failed to stop recording:', error);
@@ -432,7 +458,7 @@ const WorkflowEditor = () => {
     }
   };
 
-  const fetchCode = async (lang: 'python' | 'javascript' | 'typescript') => {
+  const fetchCode = async (lang: 'python' | 'javascript' | 'typescript' | 'desktop' | 'hybrid') => {
     if (!workflowId) {
       toast.error('Save the workflow first before viewing code');
       return;
@@ -462,7 +488,7 @@ const WorkflowEditor = () => {
     await fetchCode(codeLanguage);
   };
 
-  const handleCodeLanguageChange = async (_: any, newLang: 'python' | 'javascript' | 'typescript') => {
+  const handleCodeLanguageChange = async (_: any, newLang: 'python' | 'javascript' | 'typescript' | 'desktop' | 'hybrid') => {
     setCodeLanguage(newLang);
     setCodeCopied(false);
     await fetchCode(newLang);
@@ -476,7 +502,10 @@ const WorkflowEditor = () => {
   };
 
   const handleDownloadCode = () => {
-    const ext = codeLanguage === 'python' ? 'py' : codeLanguage === 'javascript' ? 'js' : 'ts';
+    const ext = codeLanguage === 'python' ? 'py'
+              : codeLanguage === 'javascript' ? 'js'
+              : codeLanguage === 'typescript' ? 'ts'
+              : 'py'; // desktop / hybrid — Python file
     const blob = new Blob([generatedCode], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -769,6 +798,8 @@ const WorkflowEditor = () => {
         onImportScript={handleImportScript}
         replaySpeed={replaySpeed}
         onReplaySpeedChange={setReplaySpeed}
+        recordingMode={recordingMode}
+        onRecordingModeChange={setRecordingMode}
       />
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <NodePalette />
@@ -815,7 +846,7 @@ const WorkflowEditor = () => {
         PaperProps={{ sx: { backgroundColor: '#1e1e1e', color: 'white', minHeight: 500 } }}
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 0 }}>
-          <Typography variant="h6">Playwright Code</Typography>
+          <Typography variant="h6">Generated Code</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Tooltip title={codeCopied ? 'Copied!' : 'Copy to clipboard'}>
               <IconButton onClick={handleCopyCode} disabled={!generatedCode} sx={{ color: codeCopied ? '#4CAF50' : 'white' }}>
@@ -841,9 +872,11 @@ const WorkflowEditor = () => {
             '& .MuiTabs-indicator': { backgroundColor: '#1976d2' },
           }}
         >
-          <Tab label="Python" value="python" />
+          <Tab label="Python (Web)" value="python" />
           <Tab label="JavaScript" value="javascript" />
           <Tab label="TypeScript" value="typescript" />
+          <Tab label="Desktop (PyAutoGUI)" value="desktop" />
+          <Tab label="Hybrid" value="hybrid" />
         </Tabs>
 
         <DialogContent sx={{ p: 0 }}>

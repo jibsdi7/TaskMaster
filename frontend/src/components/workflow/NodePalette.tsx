@@ -20,6 +20,7 @@ const NodePalette = () => {
     'Browser Actions',
     'Navigation',
     'Control Flow',
+    'Desktop Actions',
   ]);
 
   // Fetch saved blocks
@@ -50,6 +51,7 @@ const NodePalette = () => {
     blockId: b.id,
   }));
 
+  const isDesktopCategory = (cat: string) => cat === 'Desktop Actions';
   const allNodes: NodeTemplate[] = [...STATIC_NODES, ...blockNodes];
 
   const filteredNodes = allNodes.filter(
@@ -121,25 +123,30 @@ const NodePalette = () => {
           const isExpanded = expandedCategories.includes(category);
           const isBlocksCategory = category === 'Reusable Blocks';
 
+          const isDesktop = isDesktopCategory(category);
           return (
             <Accordion
               key={category}
               expanded={isExpanded}
               onChange={() => handleCategoryToggle(category)}
               sx={{
-                backgroundColor: '#252525',
+                backgroundColor: isDesktop ? '#1e1a12' : '#252525',
                 color: 'white',
                 mb: 1,
                 '&:before': { display: 'none' },
                 boxShadow: 'none',
+                border: isDesktop ? '1px solid rgba(245,158,11,0.15)' : 'none',
+                borderRadius: '4px !important',
               }}
             >
               <AccordionSummary
-                expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}
+                expandIcon={<ExpandMoreIcon sx={{ color: isDesktop ? '#F59E0B' : 'white' }} />}
                 sx={{ minHeight: 48, '& .MuiAccordionSummary-content': { my: 1 } }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="subtitle2">{category}</Typography>
+                  <Typography variant="subtitle2" sx={{ color: isDesktop ? '#F59E0B' : 'inherit' }}>
+                    {category}
+                  </Typography>
                   {isBlocksCategory && blocksLoading ? (
                     <CircularProgress size={12} sx={{ color: '#5B7CF6' }} />
                   ) : (
@@ -148,8 +155,10 @@ const NodePalette = () => {
                       size="small"
                       sx={{
                         height: 20, fontSize: 11,
-                        backgroundColor: isBlocksCategory ? 'rgba(91,124,246,0.25)' : '#1976d2',
-                        color: 'white',
+                        backgroundColor: isDesktop
+                          ? 'rgba(245,158,11,0.2)'
+                          : isBlocksCategory ? 'rgba(91,124,246,0.25)' : '#1976d2',
+                        color: isDesktop ? '#F59E0B' : 'white',
                       }}
                     />
                   )}
@@ -174,19 +183,25 @@ const NodePalette = () => {
                           gap: 1.5,
                           p: 1.5,
                           mb: 1,
-                          backgroundColor: '#2a2a2a',
+                          backgroundColor: isDesktop ? '#241e10' : '#2a2a2a',
                           borderRadius: 1,
                           cursor: 'grab',
                           transition: 'all 0.2s',
-                          border: isBlocksCategory ? '1px solid rgba(91,124,246,0.2)' : '1px solid transparent',
+                          border: isDesktop
+                            ? '1px solid rgba(245,158,11,0.15)'
+                            : isBlocksCategory ? '1px solid rgba(91,124,246,0.2)' : '1px solid transparent',
                           '&:hover': {
-                            backgroundColor: '#333',
+                            backgroundColor: isDesktop ? '#2e2510' : '#333',
                             transform: 'translateX(4px)',
                           },
                           '&:active': { cursor: 'grabbing' },
                         }}
                       >
-                        <Icon sx={{ fontSize: 20, color: isBlocksCategory ? '#7B96F9' : '#1976d2', flexShrink: 0 }} />
+                        <Icon sx={{
+                          fontSize: 20,
+                          color: isDesktop ? '#F59E0B' : isBlocksCategory ? '#7B96F9' : '#1976d2',
+                          flexShrink: 0,
+                        }} />
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Typography
                             variant="body2"

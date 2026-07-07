@@ -67,7 +67,9 @@ function fmtRelative(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-// Extract the workflow name from "WorkflowName — STATUS"
+// Extract the display name from "Name — DETAIL"
+// For scheduled jobs the detail is "ScheduleName → WorkflowNames — cron/date"
+// We want to show everything before the last " — " separator.
 function extractName(detail?: string): string {
   if (!detail) return 'Unknown';
   const idx = detail.lastIndexOf(' — ');
@@ -150,8 +152,12 @@ export default function ActivityTimeline({ activities }: Props) {
                     </Typography>
                   </Box>
 
-                  {/* Bottom line: latest workflow/block name — truncated, or "No activity" */}
-                  <Typography variant="caption" sx={{ color: isEmpty ? '#333' : '#666', fontSize: '0.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', fontStyle: isEmpty ? 'italic' : 'normal' }}>
+                  {/* Bottom line: latest workflow/block/schedule name — truncated, or "No activity" */}
+                  <Typography
+                    variant="caption"
+                    title={isEmpty ? undefined : g.latestWorkflowName}
+                    sx={{ color: isEmpty ? '#333' : '#666', fontSize: '0.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', fontStyle: isEmpty ? 'italic' : 'normal' }}
+                  >
                     {isEmpty ? 'No activity' : g.latestWorkflowName}
                   </Typography>
                 </Box>

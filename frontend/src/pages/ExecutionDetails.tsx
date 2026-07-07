@@ -42,12 +42,14 @@ interface WorkflowLog {
 interface ExecutionRun {
   id: number;
   workflow_id: number;
+  workflow_name?: string;
   run_id: string;
   status: string;
   started_at: string;
   completed_at: string | null;
   duration_seconds: number | null;
   error_message: string | null;
+  triggered_by?: string;
   logs: WorkflowLog[];
   result: any;
 }
@@ -391,7 +393,20 @@ const ExecutionDetails = () => {
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 2 }}>
           {[
             { label: 'Run ID',        value: <Typography sx={{ ...valueSx, fontFamily: 'monospace', fontSize: '0.78rem', wordBreak: 'break-all' }}>{execution.run_id}</Typography> },
-            { label: 'Workflow ID',   value: <Typography sx={valueSx}>{execution.workflow_id}</Typography> },
+            { label: 'Workflow',      value: <Typography sx={valueSx}>{execution.workflow_name || `#${execution.workflow_id}`}</Typography> },
+            { label: 'Triggered By',  value: (
+                <Chip
+                  label={execution.triggered_by === 'scheduler' ? 'Scheduler' : 'Manual'}
+                  size="small"
+                  sx={{
+                    mt: 0.3, height: 20, fontSize: '0.7rem', fontWeight: 700,
+                    bgcolor: execution.triggered_by === 'scheduler' ? 'rgba(91,124,246,0.15)' : 'rgba(72,187,120,0.12)',
+                    color:   execution.triggered_by === 'scheduler' ? '#7B96F9' : '#68d391',
+                    border:  `1px solid ${execution.triggered_by === 'scheduler' ? 'rgba(91,124,246,0.3)' : 'rgba(72,187,120,0.25)'}`,
+                  }}
+                />
+              )
+            },
             { label: 'Started At',    value: <Typography sx={valueSx}>{fmtDateTime(execution.started_at)}</Typography> },
             { label: 'Completed At',  value: <Typography sx={valueSx}>{fmtDateTime(execution.completed_at)}</Typography> },
             { label: 'Total Duration',value: <Typography sx={valueSx}>{execution.duration_seconds != null ? `${execution.duration_seconds.toFixed(2)} s` : '—'}</Typography> },

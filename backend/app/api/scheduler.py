@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.db import models
 from app.db.database import get_db
@@ -117,7 +118,7 @@ def _to_response(job: models.ScheduledJob, db: Session) -> ScheduledJobResponse:
 def _assert_owns_job(job: models.ScheduledJob | None, current_user: models.User) -> models.ScheduledJob:
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
-    if job.creator_id != current_user.id:
+    if not settings.DEV_AUTH_BYPASS and job.creator_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     return job
 
@@ -132,12 +133,10 @@ def list_schedules(
     current_user: models.User = Depends(get_current_user),
 ):
     """List all scheduled jobs belonging to the current user."""
-    jobs = (
-        db.query(models.ScheduledJob)
-        .filter(models.ScheduledJob.creator_id == current_user.id)
-        .order_by(models.ScheduledJob.created_at.desc())
-        .all()
-    )
+    q = db.query(models.ScheduledJob)
+    if not settings.DEV_AUTH_BYPASS:
+        q = q.filter(models.ScheduledJob.creator_id == current_user.id)
+    jobs = q.order_by(models.ScheduledJob.created_at.desc()).all()
     return [_to_response(j, db) for j in jobs]
 
 
@@ -148,12 +147,12 @@ def create_schedule(
     current_user: models.User = Depends(get_current_user),
 ):
     """Create a new scheduled job with an ordered list of workflows."""
-    # Validate all workflows exist and belong to the user
+    # Validate all workflows exist (and belong to the user outside dev mode)
     for wid in payload.workflow_ids:
-        wf = db.query(models.Workflow).filter(
-            models.Workflow.id == wid,
-            models.Workflow.creator_id == current_user.id,
-        ).first()
+        q = db.query(models.Workflow).filter(models.Workflow.id == wid)
+        if not settings.DEV_AUTH_BYPASS:
+            q = q.filter(models.Workflow.creator_id == current_user.id)
+        wf = q.first()
         if not wf:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

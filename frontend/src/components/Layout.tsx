@@ -93,9 +93,9 @@ const Layout = () => {
               }}
             >
               <img
-                src="/logo.png"
+                src="/logo.svg"
                 alt="FlowWeaver"
-                style={{ width: 28, height: 28, display: 'block', objectFit: 'contain' }}
+                style={{ width: 38, height: 38, borderRadius: 11, display: 'block' }}
               />
             </Box>
           </Tooltip>

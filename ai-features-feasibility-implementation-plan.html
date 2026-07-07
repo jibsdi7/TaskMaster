@@ -1,0 +1,421 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #1f2328;
+    background: #ffffff;
+    padding: 32px 16px 48px;
+  }
+  .page { max-width: 760px; margin: 0 auto; }
+
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  h2 { font-size: 15px; font-weight: 700; margin: 28px 0 10px; color: #1f2328; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+  h3 { font-size: 13px; font-weight: 700; margin: 16px 0 6px; color: #3b82d4; text-transform: uppercase; letter-spacing: .04em; }
+  p  { margin-bottom: 10px; color: #1f2328; }
+  .muted { color: #57606a; font-size: 13px; }
+
+  /* Verdict badges */
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    vertical-align: middle;
+    margin-left: 8px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .badge-green  { background: #d1fae5; color: #065f46; }
+  .badge-yellow { background: #fef9c3; color: #713f12; }
+  .badge-blue   { background: #dbeafe; color: #1e40af; }
+
+  /* Feature cards */
+  .feature-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 20px 22px;
+    margin-bottom: 20px;
+    background: #f7f8fa;
+  }
+  .feature-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .feature-subtitle {
+    font-size: 13px;
+    color: #57606a;
+    margin-bottom: 14px;
+  }
+
+  /* Two-column grid */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 560px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .col-box {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .col-box h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #57606a; margin-bottom: 8px; }
+
+  ul { padding-left: 18px; margin-bottom: 8px; }
+  li { margin-bottom: 4px; font-size: 13.5px; }
+
+  /* Flow diagram */
+  .flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 10px 0 14px;
+  }
+  .flow-step {
+    background: #dbeafe;
+    border: 1px solid #93c5fd;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1e40af;
+    white-space: nowrap;
+  }
+  .flow-arrow { color: #9ca3af; font-size: 14px; }
+
+  /* File list */
+  .file-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0 14px; }
+  .file-table th { text-align: left; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; padding: 6px 10px; background: #f7f8fa; border-bottom: 1px solid #e5e7eb; }
+  .file-table td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  .file-table tr:last-child td { border-bottom: none; }
+  .tag-new    { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: #d1fae5; color: #065f46; }
+  .tag-edit   { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: #fef9c3; color: #713f12; }
+  .tag-config { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: #ede9fe; color: #4c1d95; }
+
+  /* Risk / effort table */
+  .summary-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
+  .summary-table th { text-align: left; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; padding: 6px 10px; background: #f7f8fa; border-bottom: 1px solid #e5e7eb; }
+  .summary-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+  .summary-table tr:last-child td { border-bottom: none; }
+  .dot-high   { color: #ef4444; font-weight: 700; }
+  .dot-med    { color: #f59e0b; font-weight: 700; }
+  .dot-low    { color: #22c55e; font-weight: 700; }
+
+  code {
+    background: #f0f0f0;
+    border: 1px solid #e5e7eb;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 12px;
+    font-family: "Consolas", "Courier New", monospace;
+  }
+
+  .note {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #713f12;
+    margin: 14px 0;
+  }
+
+  footer {
+    margin-top: 48px;
+    padding-top: 14px;
+    border-top: 1px solid #e5e7eb;
+    text-align: center;
+    font-size: 12px;
+    color: #57606a;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>AI Features — Feasibility &amp; Implementation Plan</h1>
+  <p class="muted">TaskMaster / FlowWeaver · Analysis based on current codebase</p>
+
+  
+  <h2>Verdict at a Glance</h2>
+  <table class="summary-table">
+    <thead>
+      <tr><th>Feature</th><th>Feasibility</th><th>Effort</th><th>LLM Dependency</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Natural Language Workflow Generator</strong></td>
+        <td><span class="badge badge-green">High</span></td>
+        <td><span class="dot-med">Medium</span> — ~3–4 days</td>
+        <td>Yes — GPT-4o / Claude / Gemini (OpenAI SDK)</td>
+      </tr>
+      <tr>
+        <td><strong>Workflow Documentation Generator</strong></td>
+        <td><span class="badge badge-green">High</span></td>
+        <td><span class="dot-low">Low</span> — ~1–2 days</td>
+        <td>Optional — works without LLM too</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <strong>Key pre-condition:</strong> Neither feature requires a new database schema.
+    Both build on top of the existing <code>WorkflowGeneratorService</code>,
+    <code>WorkflowNodeCreate</code> schema, and the <code>ScriptGenerator</code>
+    that already exist in the codebase. The heaviest lift is the LLM integration layer.
+  </div>
+
+  
+  <div class="feature-card">
+    <div class="feature-title">Feature 1 — Natural Language Workflow Generator
+      <span class="badge badge-green">Feasible</span>
+    </div>
+    <div class="feature-subtitle">
+      Input: "Login to application, search customer, download report" →
+      Output: Draft workflow with nodes + edges, ready to save and run
+    </div>
+
+    <h3>How it would work</h3>
+    <div class="flow">
+      <span class="flow-step">User types intent</span><span class="flow-arrow">→</span>
+      <span class="flow-step">POST /api/ai/generate-workflow</span><span class="flow-arrow">→</span>
+      <span class="flow-step">LLM (GPT-4o)</span><span class="flow-arrow">→</span>
+      <span class="flow-step">Structured JSON (nodes + edges)</span><span class="flow-arrow">→</span>
+      <span class="flow-step">WorkflowGeneratorService</span><span class="flow-arrow">→</span>
+      <span class="flow-step">Draft workflow rendered on canvas</span>
+    </div>
+
+    <div class="grid-2">
+      <div class="col-box">
+        <h4>What the LLM receives (prompt)</h4>
+        <ul>
+          <li>User's natural language instruction</li>
+          <li>System prompt listing all available <code>NodeType</code> values and their config shapes</li>
+          <li>A few worked examples (few-shot)</li>
+          <li>Strict JSON schema to force structured output</li>
+        </ul>
+      </div>
+      <div class="col-box">
+        <h4>What the LLM returns (JSON)</h4>
+        <ul>
+          <li>Array of <code>{ node_type, label, config }</code> objects</li>
+          <li>No selectors — those are set to empty placeholders</li>
+          <li>Workflow name &amp; description</li>
+          <li>Optional step-level hints (e.g., "user must fill URL")</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Codebase hooks — what already exists</h3>
+    <ul>
+      <li><code>WorkflowGeneratorService.generate_from_actions()</code> already converts an actions list → nodes + edges. The LLM output just needs to conform to the same action schema.</li>
+      <li><code>WorkflowNodeCreate</code> Pydantic schema handles all 14 node types with typed configs — use it to validate LLM output before saving.</li>
+      <li><code>workflowStore.setNodes() / setEdges()</code> on the frontend can load a draft workflow onto the canvas without a save round-trip.</li>
+      <li><code>nodeTemplates.ts → STATIC_NODES</code> gives the full node catalogue to inject into the system prompt.</li>
+    </ul>
+
+    <h3>Files to create / change</h3>
+    <table class="file-table">
+      <thead><tr><th>File</th><th>Action</th><th>What</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>backend/app/services/ai_generator.py</code></td>
+          <td><span class="tag-new">NEW</span></td>
+          <td>LLM call, prompt template, JSON validation, fallback to rule-based parser if LLM unavailable</td>
+        </tr>
+        <tr>
+          <td><code>backend/app/api/ai.py</code></td>
+          <td><span class="tag-new">NEW</span></td>
+          <td><code>POST /api/ai/generate-workflow</code> — receives <code>{ prompt, project_id }</code>, returns draft workflow JSON</td>
+        </tr>
+        <tr>
+          <td><code>backend/app/core/config.py</code></td>
+          <td><span class="tag-edit">EDIT</span></td>
+          <td>Add <code>OPENAI_API_KEY: str = ""</code> and <code>AI_MODEL: str = "gpt-4o"</code></td>
+        </tr>
+        <tr>
+          <td><code>backend/requirements.txt</code></td>
+          <td><span class="tag-edit">EDIT</span></td>
+          <td>Add <code>openai&gt;=1.30</code></td>
+        </tr>
+        <tr>
+          <td><code>backend/app/main.py</code></td>
+          <td><span class="tag-edit">EDIT</span></td>
+          <td>Register <code>ai_router</code> at <code>/api/ai</code></td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/components/workflow/WorkflowToolbar.tsx</code></td>
+          <td><span class="tag-edit">EDIT</span></td>
+          <td>Add "Generate from text" toolbar button (AutoAwesome icon)</td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/components/workflow/NLGeneratorDialog.tsx</code></td>
+          <td><span class="tag-new">NEW</span></td>
+          <td>Dialog with a multiline TextField, Generate button, preview of draft nodes, Confirm to load onto canvas</td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/pages/WorkflowEditor.tsx</code></td>
+          <td><span class="tag-edit">EDIT</span></td>
+          <td>Wire toolbar button → dialog → <code>POST /api/ai/generate-workflow</code> → <code>workflowStore.setNodes/setEdges</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Key design decision — graceful degradation</h3>
+    <p>If <code>OPENAI_API_KEY</code> is not set, <code>ai_generator.py</code> falls back to a
+    rule-based parser that matches keywords like "login", "search", "click", "download" to
+    known node types. This means the feature works offline / without API cost for common cases.</p>
+  </div>
+
+  
+  <div class="feature-card">
+    <div class="feature-title">Feature 2 — Workflow Documentation Generator
+      <span class="badge badge-blue">Feasible (LLM optional)</span>
+    </div>
+    <div class="feature-subtitle">
+      Input: Existing workflow (nodes + edges + run history) →
+      Output: Human-readable Markdown / HTML documentation
+    </div>
+
+    <h3>Two implementation tiers</h3>
+    <div class="grid-2">
+      <div class="col-box">
+        <h4>Tier 1 — Rule-based (no LLM)</h4>
+        <ul>
+          <li>Iterate nodes in topological order</li>
+          <li>Template each node type into a plain-English sentence ("Navigate to <em>url</em>", "Click the <em>Dogs</em> link")</li>
+          <li>Append run stats from <code>WorkflowRun</code> (avg duration, pass/fail rate)</li>
+          <li>Outputs Markdown → served as a download or shown in a dialog</li>
+          <li><strong>Zero external dependencies</strong></li>
+        </ul>
+      </div>
+      <div class="col-box">
+        <h4>Tier 2 — LLM-enriched</h4>
+        <ul>
+          <li>Same rule-based output as the prompt context</li>
+          <li>LLM adds: purpose summary, business context, edge-case warnings</li>
+          <li>Richer prose, suitable for handoff docs</li>
+          <li>Reuses the same <code>OPENAI_API_KEY</code> from Feature 1</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Codebase hooks — what already exists</h3>
+    <ul>
+      <li><code>ScriptGenerator.generate()</code> already serialises nodes in topological order — the same ordering can drive the doc generator.</li>
+      <li><code>GET /api/workflows/{id}/export-script</code> endpoint pattern can be copied verbatim for <code>GET /api/workflows/{id}/export-docs</code>.</li>
+      <li><code>WorkflowRun</code> model has <code>duration_seconds</code>, <code>status</code>, and <code>result</code> — ready to include as test history.</li>
+      <li><code>topological_sort()</code> in <code>script_generator.py</code> is already importable for traversal order.</li>
+    </ul>
+
+    <h3>Files to create / change</h3>
+    <table class="file-table">
+      <thead><tr><th>File</th><th>Action</th><th>What</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>backend/app/services/doc_generator.py</code></td>
+          <td><span class="tag-new">NEW</span></td>
+          <td>Rule-based Markdown builder + optional LLM enrichment call</td>
+        </tr>
+        <tr>
+          <td><code>backend/app/api/workflows.py</code></td>
+          <td><span class="tag-edit">EDIT</span></td>
+          <td>Add <code>GET /api/workflows/{id}/export-docs?format=markdown|html</code> (mirrors existing export-script endpoint)</td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/components/workflow/WorkflowToolbar.tsx</code></td>
+          <td><span class="tag-edit">EDIT</span></td>
+          <td>Add "Export Docs" button next to existing "View Code" button</td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/pages/WorkflowEditor.tsx</code></td>
+          <td><span class="tag-edit">EDIT</span></td>
+          <td>Wire button → <code>GET /api/workflows/{id}/export-docs</code> → download or preview dialog</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Sample document output</h3>
+    <p class="muted" style="font-size:12px;font-family:Consolas, monospace;background:#f7f8fa;border:1px solid #e5e7eb;border-radius:6px;padding:12px;white-space:pre-line;line-height:1.7">
+# Workflow: Test14
+**Generated:** 2025-07-11 | **Nodes:** 6 | **Last run status:** COMPLETED
+
+## Steps
+1. **Navigate** to https://petstore.octoperf.com/actions/Catalog.action
+2. **Click** the Dogs link
+3. **Click** the K9-BD- product link
+4. **Click** Return to DOGS
+5. **Click** K9-BD- again
+6. **Click** Add to Cart
+
+## Run History (last 5 runs)
+| Run | Status | Duration |
+|-----|--------|----------|
+| 108 | COMPLETED | 12.4s |
+| 107 | COMPLETED | 11.9s |
+    </p>
+  </div>
+
+  
+  <h2>Shared Implementation Concerns</h2>
+
+  <div class="grid-2">
+    <div class="col-box">
+      <h4>LLM API key management</h4>
+      <ul>
+        <li>Add <code>OPENAI_API_KEY</code> to <code>config.py</code> + <code>.env.example</code></li>
+        <li>Never commit the actual key — already covered by existing <code>.gitignore</code></li>
+        <li>Expose a <code>GET /api/ai/status</code> endpoint that returns <code>{ available: bool }</code> so the UI can hide/show AI buttons</li>
+      </ul>
+    </div>
+    <div class="col-box">
+      <h4>LLM output validation</h4>
+      <ul>
+        <li>Use OpenAI's <strong>structured outputs</strong> (JSON mode) with a strict schema matching <code>WorkflowNodeCreate</code></li>
+        <li>Validate every returned node through the existing Pydantic schema before touching the DB</li>
+        <li>If validation fails, return a user-friendly error — never a 500</li>
+      </ul>
+    </div>
+    <div class="col-box">
+      <h4>Cost &amp; latency</h4>
+      <ul>
+        <li>NL generator: ~1–2 LLM calls per workflow draft, ~1–3s latency</li>
+        <li>Doc generator (Tier 1): zero LLM calls, &lt;100ms</li>
+        <li>Doc generator (Tier 2): 1 call, ~2s</li>
+        <li>No streaming required — simple request/response is sufficient</li>
+      </ul>
+    </div>
+    <div class="col-box">
+      <h4>Recommended LLM</h4>
+      <ul>
+        <li><strong>OpenAI GPT-4o</strong> — best structured-output reliability</li>
+        <li><strong>Claude 3.5 Sonnet</strong> — strong alternative, same REST shape</li>
+        <li>Use <code>litellm</code> as a thin abstraction so you can swap providers via config</li>
+      </ul>
+    </div>
+  </div>
+
+  
+  <h2>Recommended Build Order</h2>
+  <table class="summary-table">
+    <thead><tr><th>#</th><th>Step</th><th>Why first</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Add <code>OPENAI_API_KEY</code> to config + <code>GET /api/ai/status</code></td><td>Both features share this; lets frontend hide buttons gracefully if key is absent</td></tr>
+      <tr><td>2</td><td>Build <code>doc_generator.py</code> rule-based tier (no LLM)</td><td>Zero risk, immediate value, validates the export-docs endpoint pattern</td></tr>
+      <tr><td>3</td><td>Build <code>ai_generator.py</code> with keyword fallback</td><td>Feature works even before API key is set</td></tr>
+      <tr><td>4</td><td>Wire LLM into both services behind the API key guard</td><td>Now both features are fully AI-powered with a safe fallback</td></tr>
+      <tr><td>5</td><td>Frontend dialogs (NLGeneratorDialog + Export Docs button)</td><td>UI last, after backend API is stable and tested</td></tr>
+    </tbody>
+  </table>
+
+</div>
+<footer>Made with IBM Bob</footer>
+</body>
+</html>

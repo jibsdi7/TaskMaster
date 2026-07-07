@@ -409,9 +409,44 @@ class PlaywrightScriptParser:
         
         # get_by_text
         # Example: page.get_by_text("Submit") -> text="Submit"
-        text_match = re.search(r'get_by_text\(["\']([^"\']+)["\']', line)
-        if text_match:
-            return f'text="{text_match.group(1)}"'
+        # Guard: if the text content IS a structured selector string (e.g.
+        # `role=link[name="Dogs"]`) it means the script was generated with the
+        # wrong locator method.  Re-parse the inner value as a structured
+        # selector so that execution and code-generation both work correctly.
+        #
+        # We must handle both quote styles and embedded quotes:
+        #   get_by_text('role=link[name="Dogs"]')   ← single outer, double inner
+        #   get_by_text("role=link[name=\"Dogs\"]")  ← double outer, escaped inner
+        text_inner = None
+        # Single-quoted outer: everything between the outer single quotes
+        m_sq = re.search(r"get_by_text\('([^']*)'\)", line)
+        if m_sq:
+            text_inner = m_sq.group(1)
+        else:
+            # Double-quoted outer: allow escaped quotes inside
+            m_dq = re.search(r'get_by_text\("((?:[^"\\]|\\.)*)"\)', line)
+            if m_dq:
+                text_inner = m_dq.group(1).replace('\\"', '"')
+        if text_inner is not None:
+            inner = text_inner
+            # role=X[name="Y"] or role=X[name='Y']
+            m = re.match(r'^role=([^\[]+)\[name=["\']([^"\']+)["\']\]$', inner)
+            if m:
+                return f'role={m.group(1)}[name="{m.group(2)}"]'
+            # role=X (no name)
+            m = re.match(r'^role=(\S+)$', inner)
+            if m:
+                return f'role={m.group(1)}'
+            # placeholder="Y"
+            m = re.match(r'^placeholder=["\']([^"\']+)["\']$', inner)
+            if m:
+                return f'placeholder="{m.group(1)}"'
+            # label="Y"
+            m = re.match(r'^label=["\']([^"\']+)["\']$', inner)
+            if m:
+                return f'label="{m.group(1)}"'
+            # Plain text — keep as-is
+            return f'text="{inner}"'
         
         # get_by_role without name
         # Example: page.get_by_role("button") -> role=button

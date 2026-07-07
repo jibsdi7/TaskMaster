@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # Development Mode Authentication Bypass
-    DEV_AUTH_BYPASS: bool = False
+    DEV_AUTH_BYPASS: bool = True
     
     # API
     API_V1_PREFIX: str = "/api"

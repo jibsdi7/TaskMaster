@@ -28,29 +28,42 @@ class WorkflowStatus(str, enum.Enum):
 
 
 class NodeType(str, enum.Enum):
-    # Browser Actions
+    # Browser Actions (Playwright / Web)
     CLICK = "CLICK"
     TYPE = "TYPE"
     SELECT = "SELECT"
     HOVER = "HOVER"
     UPLOAD_FILE = "UPLOAD_FILE"
-    
-    # Navigation
+
+    # Navigation (Web)
     OPEN_URL = "OPEN_URL"
     BACK = "BACK"
     REFRESH = "REFRESH"
-    
+
     # Control Flow
     DELAY = "DELAY"
     IF_CONDITION = "IF_CONDITION"
     LOOP = "LOOP"
-    
+
     # Data
     VARIABLE = "VARIABLE"
     API_REQUEST = "API_REQUEST"
-    
+
     # Reusable
     BLOCK = "BLOCK"
+
+    # ── Desktop Actions (PyAutoGUI) ──────────────────────────────────────────
+    DESKTOP_CLICK = "DESKTOP_CLICK"           # left / right / double click at coords or image
+    DESKTOP_TYPE = "DESKTOP_TYPE"             # type text via keyboard
+    DESKTOP_HOTKEY = "DESKTOP_HOTKEY"         # send hotkey combination (Ctrl+C, Alt+F4 …)
+    DESKTOP_MOVE = "DESKTOP_MOVE"             # move mouse to position
+    DESKTOP_DRAG = "DESKTOP_DRAG"             # drag from one point to another
+    DESKTOP_SCROLL = "DESKTOP_SCROLL"         # scroll wheel
+    DESKTOP_SCREENSHOT = "DESKTOP_SCREENSHOT" # capture desktop screenshot
+    DESKTOP_FIND_IMAGE = "DESKTOP_FIND_IMAGE" # locate image on screen (pyautogui.locateOnScreen)
+    DESKTOP_LAUNCH_APP = "DESKTOP_LAUNCH_APP" # launch an application
+    DESKTOP_CLOSE_APP = "DESKTOP_CLOSE_APP"   # close an application window
+    DESKTOP_SWITCH_WINDOW = "DESKTOP_SWITCH_WINDOW"  # bring window to foreground
 
 
 class CredentialType(str, enum.Enum):
