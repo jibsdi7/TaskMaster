@@ -1,6 +1,8 @@
 """
 Dashboard API — aggregated statistics for the FlowWeaver dashboard.
-GET /api/dashboard
+GET /api/dashboard?days=7          — last N days  (1 / 7 / 30 / 90)
+GET /api/dashboard?hours=1         — last N hours (1 / 24)
+When `hours` is supplied it takes precedence over `days`.
 """
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -17,11 +19,22 @@ router = APIRouter()
 
 @router.get("")
 async def get_dashboard(
-    days: int = Query(default=7, ge=1, le=90),
+    days:  int           = Query(default=7, ge=1,  le=90),
+    hours: Optional[int] = Query(default=None, ge=1, le=24),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Return aggregated dashboard statistics for the current user."""
+    """Return aggregated dashboard statistics for the current user.
+
+    When `hours` is provided the execution trend is bucketed by hour instead
+    of by day, and `periodDays` is set to 0 while `periodHours` carries the value.
+    """
+    sub_day = hours is not None          # True  → hourly mode
+    since   = (
+        datetime.utcnow() - timedelta(hours=hours)
+        if sub_day
+        else datetime.utcnow() - timedelta(days=days)
+    )
 
     # ── Dev-mode: bypass creator_id filters ───────────────────────────
     from app.core.config import settings
@@ -32,8 +45,6 @@ async def get_dashboard(
     if not dev_mode:
         wf_ids_q = wf_ids_q.filter(models.Workflow.creator_id == current_user.id)
     wf_ids = [r[0] for r in wf_ids_q.all()]
-
-    since = datetime.utcnow() - timedelta(days=days)
 
     # ── Summary counts ────────────────────────────────────────────────
     wf_q = db.query(models.Workflow) if dev_mode else db.query(models.Workflow).filter(models.Workflow.creator_id == current_user.id)
@@ -60,50 +71,80 @@ async def get_dashboard(
 
     success_rate = round(successful_runs / total_executions * 100, 1) if total_executions > 0 else 0.0
 
-    # ── Execution trend (per-day, zero-filled) ────────────────────────
-    # Use the actual date range of existing runs so clock-skew between the
-    # DB rows and the server clock never produces an empty window.
-    first_run = (
-        db.query(func.min(models.WorkflowRun.started_at))
-        .filter(models.WorkflowRun.workflow_id.in_(wf_ids))
-        .scalar()
-    ) if wf_ids else None
+    # ── Execution trend ───────────────────────────────────────────────
+    if sub_day:
+        # ── Hourly buckets for 1 h / 24 h views ──────────────────────
+        window_start_dt = datetime.utcnow() - timedelta(hours=hours)
+        window_end_dt   = datetime.utcnow()
 
-    if first_run is not None:
-        # Anchor window to the most-recent run, not to utcnow()
-        latest_run = (
-            db.query(func.max(models.WorkflowRun.started_at))
+        trend_rows = (
+            db.query(
+                func.strftime('%Y-%m-%dT%H:00', models.WorkflowRun.started_at).label("hour"),
+                func.count().label("count"),
+            )
+            .filter(
+                models.WorkflowRun.workflow_id.in_(wf_ids),
+                models.WorkflowRun.started_at >= window_start_dt,
+                models.WorkflowRun.started_at <= window_end_dt,
+            )
+            .group_by(func.strftime('%Y-%m-%dT%H:00', models.WorkflowRun.started_at))
+            .order_by(func.strftime('%Y-%m-%dT%H:00', models.WorkflowRun.started_at))
+            .all()
+        ) if wf_ids else []
+
+        # Zero-fill every hour in the window
+        counts_by_hour: dict = {r.hour: r.count for r in trend_rows}
+        execution_trend = []
+        for h in range(hours):
+            bucket_dt  = window_start_dt + timedelta(hours=h)
+            bucket_key = bucket_dt.strftime("%Y-%m-%dT%H:00")
+            label      = bucket_dt.strftime("%H:%M")   # "14:00" — frontend uses this
+            execution_trend.append({"date": label, "count": counts_by_hour.get(bucket_key, 0)})
+
+    else:
+        # ── Daily buckets for 7 / 30 / 90 day views ──────────────────
+        # Anchor window to the most-recent run so clock-skew never
+        # produces an empty window.
+        first_run = (
+            db.query(func.min(models.WorkflowRun.started_at))
             .filter(models.WorkflowRun.workflow_id.in_(wf_ids))
             .scalar()
-        )
-        window_end   = latest_run.date() if latest_run else datetime.utcnow().date()
-        window_start = window_end - timedelta(days=days - 1)
-    else:
-        window_end   = datetime.utcnow().date()
-        window_start = window_end - timedelta(days=days - 1)
+        ) if wf_ids else None
 
-    trend_rows = (
-        db.query(
-            func.date(models.WorkflowRun.started_at).label("day"),
-            func.count().label("count"),
-        )
-        .filter(
-            models.WorkflowRun.workflow_id.in_(wf_ids),
-            func.date(models.WorkflowRun.started_at) >= str(window_start),
-            func.date(models.WorkflowRun.started_at) <= str(window_end),
-        )
-        .group_by(func.date(models.WorkflowRun.started_at))
-        .order_by(func.date(models.WorkflowRun.started_at))
-        .all()
-    ) if wf_ids else []
+        if first_run is not None:
+            latest_run = (
+                db.query(func.max(models.WorkflowRun.started_at))
+                .filter(models.WorkflowRun.workflow_id.in_(wf_ids))
+                .scalar()
+            )
+            window_end   = latest_run.date() if latest_run else datetime.utcnow().date()
+            window_start = window_end - timedelta(days=days - 1)
+        else:
+            window_end   = datetime.utcnow().date()
+            window_start = window_end - timedelta(days=days - 1)
 
-    # Zero-fill every day in the window so the chart is a continuous series
-    counts_by_day = {str(r.day): r.count for r in trend_rows}
-    execution_trend = []
-    for offset in range(days):
+        trend_rows = (
+            db.query(
+                func.date(models.WorkflowRun.started_at).label("day"),
+                func.count().label("count"),
+            )
+            .filter(
+                models.WorkflowRun.workflow_id.in_(wf_ids),
+                func.date(models.WorkflowRun.started_at) >= str(window_start),
+                func.date(models.WorkflowRun.started_at) <= str(window_end),
+            )
+            .group_by(func.date(models.WorkflowRun.started_at))
+            .order_by(func.date(models.WorkflowRun.started_at))
+            .all()
+        ) if wf_ids else []
+
+        # Zero-fill every day in the window so the chart is a continuous series
         from datetime import date as date_type
-        day = (window_start + timedelta(days=offset)).strftime("%Y-%m-%d")
-        execution_trend.append({"date": day, "count": counts_by_day.get(day, 0)})
+        counts_by_day = {str(r.day): r.count for r in trend_rows}
+        execution_trend = []
+        for offset in range(days):
+            day = (window_start + timedelta(days=offset)).strftime("%Y-%m-%d")
+            execution_trend.append({"date": day, "count": counts_by_day.get(day, 0)})
 
     # ── Execution status breakdown (period) ───────────────────────────
     status_rows = (
@@ -218,7 +259,8 @@ async def get_dashboard(
         "failedRuns": failed_runs,
         "successRate": success_rate,
         "reusableBlocks": reusable_blocks,
-        "periodDays": days,
+        "periodDays":  0 if sub_day else days,
+        "periodHours": hours if sub_day else 0,
         "executionTrend": execution_trend,
         "statusBreakdown": status_breakdown,
         "workflowDistribution": workflow_distribution,
