@@ -4,6 +4,7 @@ Supports both Web (Playwright) and Desktop (PyAutoGUI) node types for hybrid aut
 """
 import asyncio
 import re
+from app.services.workflow_executor_sync import _is_sensitive_node, MASKED  # shared masking helpers
 import sys
 from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
@@ -635,13 +636,15 @@ class WorkflowExecutor:
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
+        sensitive = _is_sensitive_node(config.get("label", ""), selector)
+        display_value = MASKED if sensitive else value
 
         healer = AsyncSelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
             locator, used_selector, recovery_log = await healer.find(selector)
             await locator.fill(value, timeout=timeout)
             return {
-                "typed": value,
+                "typed": display_value,
                 "used_selector": used_selector,
                 "self_healed": used_selector != selector,
                 "recovery_log": recovery_log,

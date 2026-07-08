@@ -3,6 +3,7 @@ Synchronous Workflow Execution Engine for Windows compatibility.
 Uses Playwright's sync API for web nodes and PyAutoGUI for desktop nodes.
 Browser is only launched when the workflow contains web nodes.
 """
+import re as _re
 import time
 import subprocess as _subprocess
 from typing import Dict, List, Any, Optional, Set
@@ -11,6 +12,21 @@ from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext
 import os
 
 from app.core.config import settings
+
+# ── Password / sensitive-field masking ───────────────────────────────────────
+_SENSITIVE_PATTERN = _re.compile(
+    r'password|passwd|secret|token|credential|api.?key|auth|pwd',
+    _re.IGNORECASE
+)
+
+def _is_sensitive_node(label: str, selector: str) -> bool:
+    """Return True if a TYPE/DESKTOP_TYPE node label or selector suggests a password field."""
+    return bool(
+        _SENSITIVE_PATTERN.search(label or '')
+        or _SENSITIVE_PATTERN.search(selector or '')
+    )
+
+MASKED = '••••••••'
 from app.db.models import NodeType, WorkflowStatus
 from app.services.self_healing import SelfHealingLocator
 
@@ -589,6 +605,8 @@ class WorkflowExecutorSync:
         selector = config.get("selector")
         value = config.get("value", "")
         timeout = config.get("timeout", settings.PLAYWRIGHT_TIMEOUT)
+        sensitive = _is_sensitive_node(config.get("label", ""), selector)
+        display_value = MASKED if sensitive else value
 
         healer = SelfHealingLocator(self.page, self._log, timeout_ms=timeout)
         try:
@@ -605,7 +623,7 @@ class WorkflowExecutorSync:
             locator.fill(value)
             locator.press("Tab")
             return {
-                "typed": value,
+                "typed": display_value,
                 "used_selector": used_selector,
                 "self_healed": used_selector != selector,
                 "recovery_log": recovery_log,
@@ -676,13 +694,15 @@ class WorkflowExecutorSync:
     def _execute_desktop_type(self, config: Dict[str, Any]) -> Any:
         self._require_pyautogui()
         text = config.get("text", "")
+        sensitive = _is_sensitive_node(config.get("label", ""), "")
+        display_text = MASKED if sensitive else text
         try:
             import pyperclip
             pyperclip.copy(text)
             _pyautogui.hotkey("ctrl", "v")
         except ImportError:
             _pyautogui.typewrite(text, interval=0.05)
-        return {"typed": text}
+        return {"typed": display_text}
 
     def _execute_desktop_hotkey(self, config: Dict[str, Any]) -> Any:
         self._require_pyautogui()

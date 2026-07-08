@@ -64,6 +64,16 @@ function logField<T>(log: WorkflowLog, key: keyof WorkflowLog & string): T | und
   return (log[key] ?? log.meta_data?.[key]) as T | undefined;
 }
 
+const SENSITIVE_RE = /password|passwd|secret|token|credential|api.?key|auth|pwd/i;
+
+/** Replace the typed value in a log message if the node label / message is sensitive. */
+function maskLogMessage(message: string, nodeLabel?: string): string {
+  const sensitive = SENSITIVE_RE.test(nodeLabel || '') || SENSITIVE_RE.test(message);
+  if (!sensitive) return message;
+  // Covers: Typed "abc", typed: abc123, "typed": "abc"
+  return message.replace(/(typed[:\s'"]+)([^'",\s}]+)/gi, '$1••••••••');
+}
+
 /** Use log.timestamp when coming from in-memory logs, created_at from DB */
 function logTime(log: WorkflowLog): string {
   return log.timestamp || log.created_at || '';
@@ -561,7 +571,7 @@ const ExecutionDetails = () => {
                             />
                           )}
                           <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#c0c0d0', fontSize: '0.8rem' }}>
-                            {log.message}
+                            {maskLogMessage(log.message, lnLabel)}
                           </Typography>
                         </Box>
                       }

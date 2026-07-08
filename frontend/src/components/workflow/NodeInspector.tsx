@@ -17,6 +17,7 @@ import {
   Tooltip,
   Chip,
   Button,
+  InputAdornment,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -25,6 +26,8 @@ import {
   ChevronRight as CollapseIcon,
   ChevronLeft as ExpandIcon,
   CallSplit as DismantleIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
 import { useWorkflowStore } from '../../store/workflowStore';
 import { toast } from 'react-toastify';
@@ -94,12 +97,19 @@ interface BlockSummary {
   current_version: number;
 }
 
+// Keywords that indicate a field contains a sensitive/password value
+const SENSITIVE_LABELS = /password|passwd|secret|token|credential|api.?key|auth|pwd/i;
+
+const isSensitiveNode = (label: string, selector: string) =>
+  SENSITIVE_LABELS.test(label || '') || SENSITIVE_LABELS.test(selector || '');
+
 const NodeInspector = () => {
   const { nodes, selectedNodeId, updateNode, setSelectedNodeId, expandBlockNode } = useWorkflowStore();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   // Keep a ref to always read the latest store state inside callbacks
   const storeRef = useWorkflowStore;
 
+  const [showPassword, setShowPassword] = useState(false);
   const [localData, setLocalData] = useState<any>({
     // desktop fields
     x: 0, y: 0, button: 'left', clicks: 1,
@@ -539,11 +549,39 @@ const NodeInspector = () => {
             )}
 
             {/* Value */}
-            {['TYPE','SELECT'].includes(selectedNode.data.nodeType) && (
-              <FieldRow label="Value">
-                <TextField fullWidth size="small" value={localData.value} onChange={(e) => handleUpdate('value', e.target.value)} sx={inputSx} />
-              </FieldRow>
-            )}
+            {['TYPE','SELECT'].includes(selectedNode.data.nodeType) && (() => {
+              const sensitive = selectedNode.data.nodeType === 'TYPE'
+                && isSensitiveNode(localData.label || '', localData.selector || '');
+              return (
+                <FieldRow label={sensitive ? 'Value (password)' : 'Value'}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    type={sensitive && !showPassword ? 'password' : 'text'}
+                    value={localData.value}
+                    onChange={(e) => handleUpdate('value', e.target.value)}
+                    sx={inputSx}
+                    InputProps={sensitive ? {
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            size="small"
+                            onClick={() => setShowPassword((v) => !v)}
+                            edge="end"
+                            sx={{ color: '#666', '&:hover': { color: '#E0E0F0' } }}
+                            tabIndex={-1}
+                          >
+                            {showPassword
+                              ? <VisibilityOffIcon sx={{ fontSize: 16 }} />
+                              : <VisibilityIcon   sx={{ fontSize: 16 }} />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    } : undefined}
+                  />
+                </FieldRow>
+              );
+            })()}
 
             {/* URL */}
             {selectedNode.data.nodeType === 'OPEN_URL' && (
