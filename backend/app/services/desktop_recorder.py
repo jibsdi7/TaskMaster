@@ -269,7 +269,7 @@ class DesktopRecorderService:
 # ── Script parser for PyAutoGUI-generated scripts ────────────────────────────
 
 class PyAutoGUIScriptParser:
-    """Parse a PyAutoGUI Python script into FlowWeaver workflow nodes."""
+    """Parse a PyAutoGUI Python script into IBMTaskWeaver workflow nodes."""
 
     @staticmethod
     def parse(script: str) -> List[Dict[str, Any]]:

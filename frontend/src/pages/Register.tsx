@@ -47,7 +47,7 @@ const Register = () => {
     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', bgcolor: 'background.default' }}>
       <Card sx={{ width: 420, p: 2 }}>
         <CardContent>
-          <Typography variant="h5" fontWeight={700} mb={1}>FlowWeaver</Typography>
+          <Typography variant="h5" fontWeight={700} mb={1}>IBMTaskWeaver</Typography>
           <Typography variant="body2" color="text.secondary" mb={3}>Create your account</Typography>
 
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

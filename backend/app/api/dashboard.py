@@ -1,5 +1,5 @@
 """
-Dashboard API — aggregated statistics for the FlowWeaver dashboard.
+Dashboard API — aggregated statistics for the IBMTaskWeaver dashboard.
 GET /api/dashboard?days=7          — last N days  (1 / 7 / 30 / 90)
 GET /api/dashboard?hours=1         — last N hours (1 / 24)
 When `hours` is supplied it takes precedence over `days`.
@@ -30,10 +30,16 @@ async def get_dashboard(
     of by day, and `periodDays` is set to 0 while `periodHours` carries the value.
     """
     sub_day = hours is not None          # True  → hourly mode
-    since   = (
-        datetime.utcnow() - timedelta(hours=hours)
+    # SQLAlchemy passes datetime objects directly to SQLite; SQLite stores them
+    # as "YYYY-MM-DD HH:MM:SS.ffffff" (space separator).  Python's isoformat()
+    # uses a "T" separator (ASCII 84 > space ASCII 32) which breaks SQLite string
+    # comparisons — all rows appear smaller than the filter value, giving 0 results.
+    # Fix: use datetime objects directly (SQLAlchemy handles the formatting correctly).
+    _now  = datetime.utcnow()
+    since = (
+        _now - timedelta(hours=hours)
         if sub_day
-        else datetime.utcnow() - timedelta(days=days)
+        else _now - timedelta(days=days)
     )
 
     # ── Dev-mode: bypass creator_id filters ───────────────────────────
@@ -73,33 +79,77 @@ async def get_dashboard(
 
     # ── Execution trend ───────────────────────────────────────────────
     if sub_day:
-        # ── Hourly buckets for 1 h / 24 h views ──────────────────────
-        window_start_dt = datetime.utcnow() - timedelta(hours=hours)
-        window_end_dt   = datetime.utcnow()
+        # ── Sub-day buckets:
+        #   hours == 1  → 12 × 5-minute buckets  (fine-grained 1-hour view)
+        #   hours <= 24 → hourly buckets
+        window_start_dt = _now - timedelta(hours=hours)
+        window_end_dt   = _now
+        # Pass datetime objects — SQLAlchemy converts them correctly for SQLite
 
-        trend_rows = (
-            db.query(
-                func.strftime('%Y-%m-%dT%H:00', models.WorkflowRun.started_at).label("hour"),
-                func.count().label("count"),
-            )
-            .filter(
-                models.WorkflowRun.workflow_id.in_(wf_ids),
-                models.WorkflowRun.started_at >= window_start_dt,
-                models.WorkflowRun.started_at <= window_end_dt,
-            )
-            .group_by(func.strftime('%Y-%m-%dT%H:00', models.WorkflowRun.started_at))
-            .order_by(func.strftime('%Y-%m-%dT%H:00', models.WorkflowRun.started_at))
-            .all()
-        ) if wf_ids else []
+        if hours == 1:
+            # 5-minute buckets for the last hour (12 points)
+            bucket_minutes = 5
+            fmt = '%Y-%m-%dT%H:%M'  # group key includes minutes
 
-        # Zero-fill every hour in the window
-        counts_by_hour: dict = {r.hour: r.count for r in trend_rows}
-        execution_trend = []
-        for h in range(hours):
-            bucket_dt  = window_start_dt + timedelta(hours=h)
-            bucket_key = bucket_dt.strftime("%Y-%m-%dT%H:00")
-            label      = bucket_dt.strftime("%H:%M")   # "14:00" — frontend uses this
-            execution_trend.append({"date": label, "count": counts_by_hour.get(bucket_key, 0)})
+            trend_rows = (
+                db.query(
+                    func.strftime(fmt,
+                        func.datetime(
+                            func.strftime('%s', models.WorkflowRun.started_at)
+                            - (func.strftime('%M', models.WorkflowRun.started_at) % bucket_minutes) * 60,
+                            'unixepoch'
+                        )
+                    ).label("bucket"),
+                    func.count().label("count"),
+                )
+                .filter(
+                    models.WorkflowRun.workflow_id.in_(wf_ids),
+                    models.WorkflowRun.started_at >= window_start_dt,
+                    models.WorkflowRun.started_at <= window_end_dt,
+                )
+                .group_by("bucket")
+                .order_by("bucket")
+                .all()
+            ) if wf_ids else []
+
+            counts_by_bucket: dict = {r.bucket: r.count for r in trend_rows}
+            execution_trend = []
+            total_minutes = 60
+            for m in range(0, total_minutes, bucket_minutes):
+                bucket_dt  = window_start_dt + timedelta(minutes=m)
+                # round down to nearest bucket_minutes
+                rounded_min = (bucket_dt.minute // bucket_minutes) * bucket_minutes
+                bucket_dt   = bucket_dt.replace(minute=rounded_min, second=0, microsecond=0)
+                bucket_key  = bucket_dt.strftime(fmt)
+                label       = bucket_dt.strftime("%H:%M")
+                execution_trend.append({"date": label, "count": counts_by_bucket.get(bucket_key, 0)})
+
+        else:
+            # Hourly buckets for 24-hour view
+            fmt = '%Y-%m-%dT%H:00'
+
+            trend_rows = (
+                db.query(
+                    func.strftime(fmt, models.WorkflowRun.started_at).label("hour"),
+                    func.count().label("count"),
+                )
+                .filter(
+                    models.WorkflowRun.workflow_id.in_(wf_ids),
+                    models.WorkflowRun.started_at >= window_start_dt,
+                    models.WorkflowRun.started_at <= window_end_dt,
+                )
+                .group_by(func.strftime(fmt, models.WorkflowRun.started_at))
+                .order_by(func.strftime(fmt, models.WorkflowRun.started_at))
+                .all()
+            ) if wf_ids else []
+
+            counts_by_hour: dict = {r.hour: r.count for r in trend_rows}
+            execution_trend = []
+            for h in range(hours):
+                bucket_dt  = window_start_dt + timedelta(hours=h)
+                bucket_key = bucket_dt.strftime(fmt)
+                label      = bucket_dt.strftime("%H:%M")
+                execution_trend.append({"date": label, "count": counts_by_hour.get(bucket_key, 0)})
 
     else:
         # ── Daily buckets for 7 / 30 / 90 day views ──────────────────
@@ -117,10 +167,10 @@ async def get_dashboard(
                 .filter(models.WorkflowRun.workflow_id.in_(wf_ids))
                 .scalar()
             )
-            window_end   = latest_run.date() if latest_run else datetime.utcnow().date()
+            window_end   = latest_run.date() if latest_run else _now.date()
             window_start = window_end - timedelta(days=days - 1)
         else:
-            window_end   = datetime.utcnow().date()
+            window_end   = _now.date()
             window_start = window_end - timedelta(days=days - 1)
 
         trend_rows = (

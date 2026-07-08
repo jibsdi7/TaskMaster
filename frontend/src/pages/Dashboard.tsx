@@ -1,4 +1,4 @@
-// Dashboard.tsx — FlowWeaver main dashboard page
+// Dashboard.tsx — IBMTaskWeaver main dashboard page
 import { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, IconButton, Tooltip, MenuItem, Select,
@@ -161,11 +161,11 @@ const Dashboard = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {/* Logo */}
           <Box sx={{ width: 42, height: 42, flexShrink: 0 }}>
-            <img src="/logo.png" alt="FlowWeaver" style={{ width: 42, height: 42, borderRadius: 12, display: 'block', objectFit: 'contain' }} />
+            <img src="/logo.png" alt="IBMTaskWeaver" style={{ width: 42, height: 42, borderRadius: 12, display: 'block', objectFit: 'contain' }} />
           </Box>
           <Box>
             <Typography variant="h5" sx={{ color: '#FFFFFF', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.01em' }}>
-              FlowWeaver
+              IBMTaskWeaver
             </Typography>
             <Typography variant="caption" sx={{ color: '#555', fontWeight: 500, letterSpacing: '0.04em', fontSize: '0.7rem' }}>
               Record · Automate · Orchestrate · Deliver

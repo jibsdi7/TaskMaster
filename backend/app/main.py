@@ -1,5 +1,5 @@
 """
-FlowWeaver - Main FastAPI Application
+IBMTaskWeaver - Main FastAPI Application
 """
 import sys
 import os
@@ -86,7 +86,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="FlowWeaver API",
+    title="IBMTaskWeaver API",
     description="Visual workflow automation platform",
     version="1.0.0",
     lifespan=lifespan
@@ -121,7 +121,7 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"]
 async def root():
     """Root endpoint"""
     return {
-        "message": "FlowWeaver API",
+        "message": "IBMTaskWeaver API",
         "version": "1.0.0",
         "docs": "/docs",
         "dev_auth_bypass": settings.DEV_AUTH_BYPASS

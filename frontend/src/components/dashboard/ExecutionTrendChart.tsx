@@ -128,7 +128,7 @@ export default function ExecutionTrendChart({ data, loading, onPeriodChange, per
             <Box sx={{ height: H, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Typography variant="body2" sx={{ color: '#555' }}>Loading…</Typography>
             </Box>
-          ) : trend.length === 0 || totalRuns === 0 && trend.every(t => t.count === 0) ? (
+          ) : trend.length === 0 || (totalRuns === 0 && trend.every(t => t.count === 0)) ? (
             <Box sx={{ height: H, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
               <ShowChartIcon sx={{ fontSize: 32, color: '#252535' }} />
               <Typography variant="body2" sx={{ color: '#444' }}>No runs in this period</Typography>

@@ -217,7 +217,7 @@ const WorkflowEditor = () => {
       // Transform React Flow data to backend format
       const workflowData: any = {
         name: workflowName,
-        description: 'Workflow created with FlowWeaver',
+        description: 'Workflow created with IBMTaskWeaver',
         nodes: nodes.map((node) => ({
           node_id: node.id,
           node_type: node.data.nodeType,
@@ -315,7 +315,7 @@ const WorkflowEditor = () => {
     const data = {
       id: workflowId,
       name: workflowName,
-      description: 'Exported from FlowWeaver',
+      description: 'Exported from IBMTaskWeaver',
       nodes,
       edges,
     };

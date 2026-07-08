@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     """Application settings"""
     
     # Application
-    APP_NAME: str = "FlowWeaver"
+    APP_NAME: str = "IBMTaskWeaver"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
     
