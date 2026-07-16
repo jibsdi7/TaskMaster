@@ -93,7 +93,7 @@ const Layout = () => {
               }}
             >
               <img
-                src="/logo.svg"
+                src="/logo.png"
                 alt="IBMTaskWeaver"
                 style={{ width: 38, height: 38, borderRadius: 11, display: 'block' }}
               />
